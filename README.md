@@ -35,7 +35,7 @@ By using this software, you agree that you will only use it for lawful purposes.
 
 ```bash
 # Clone and install
-git clone https://github.com/your-username/zephyr.git
+git clone https://github.com/zephyr-tools/zephyr-core.git
 cd zephyr
 npm install
 
@@ -134,6 +134,27 @@ src/
 | `npm run format` | BiomeJS auto-format |
 | `npm run package` | Build + package (directory output) |
 | `npm run make` | Build + create distributable installer |
+
+## Releasing
+
+Zephyr uses GitHub Actions to build and publish releases. To cut a new release:
+
+```bash
+# Bump version (choose patch / minor / major)
+npm version patch
+
+# Push the commit and tag — CI takes it from here
+git push origin main --follow-tags
+```
+
+This triggers the release workflow which:
+
+1. Runs typecheck and lint
+2. Builds the app and packages a Windows installer (NSIS)
+3. Creates a GitHub Release with auto-generated notes from merged PRs
+4. Attaches installer artifacts (`.exe`, `.blockmap`, `latest.yml`)
+
+Users running Zephyr will be notified of the new version automatically and can update from **Settings > Application > Check for updates**.
 
 ## License
 
