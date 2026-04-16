@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { AppSettings, ReleaseListQuery } from '@shared/types';
 import { app, BrowserWindow, ipcMain, protocol, session, shell } from 'electron';
+import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.js';
 import { cachePaths } from './cache.js';
 import { GameDetailsService } from './details.js';
 import { ArtworkService } from './gemini.js';
@@ -206,9 +207,16 @@ app.whenReady().then(async () => {
   );
 
   registerIpc();
+  ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('update:check', () => (isDev ? Promise.resolve() : checkForUpdate()));
+  ipcMain.on('update:install', () => quitAndInstall());
   await ensureServices();
   await torrentClient.init();
   createWindow();
+
+  if (!isDev) {
+    initAutoUpdater(() => mainWindow);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

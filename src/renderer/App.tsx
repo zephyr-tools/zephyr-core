@@ -6,6 +6,7 @@ import { DownloadsDrawer } from './components/DownloadsDrawer';
 import { Header } from './components/Header';
 import { ReleaseGrid } from './components/ReleaseGrid';
 import { SettingsDialog } from './components/SettingsDialog';
+import { UpdateNotification } from './components/UpdateNotification';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { useDownloads } from './hooks/useDownloads';
 import { cn } from './lib/cn';
@@ -44,6 +45,7 @@ export default function App(): JSX.Element {
           onClose={() => setDownloadsOpen(false)}
           jobs={downloads}
         />
+        <UpdateNotification />
       </div>
     );
   }
@@ -91,6 +93,7 @@ export default function App(): JSX.Element {
         onClose={() => setDownloadsOpen(false)}
         jobs={downloads}
       />
+      <UpdateNotification />
     </div>
   );
 }

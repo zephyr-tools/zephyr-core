@@ -41,6 +41,22 @@ const api: BridgeApi = {
     ipcRenderer.on('torrent:progress', handler);
     return () => ipcRenderer.removeListener('torrent:progress', handler);
   },
+
+  // Auto-update
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  checkForUpdate: (): Promise<void> => ipcRenderer.invoke('update:check'),
+  onUpdateAvailable: (callback: (info: { version: string; releaseNotes?: string }) => void) => {
+    const handler = (_: unknown, info: { version: string; releaseNotes?: string }) =>
+      callback(info);
+    ipcRenderer.on('update:available', handler);
+    return () => ipcRenderer.removeListener('update:available', handler);
+  },
+  onUpdateDownloaded: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('update:downloaded', handler);
+    return () => ipcRenderer.removeListener('update:downloaded', handler);
+  },
+  installUpdate: () => ipcRenderer.send('update:install'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

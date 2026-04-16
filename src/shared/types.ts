@@ -148,6 +148,13 @@ export interface GroupPrerequisites {
   origin: 'gemini' | 'none';
 }
 
+// ---- Auto-update types ----
+
+export interface UpdateInfo {
+  version: string;
+  releaseNotes?: string;
+}
+
 /** API exposed on `window.api` from the preload bridge. */
 export interface BridgeApi {
   listReleases(query: ReleaseListQuery): Promise<ReleaseListResult>;
@@ -170,6 +177,12 @@ export interface BridgeApi {
   resumeDownload(infoHash: string): Promise<void>;
   removeDownload(infoHash: string, deleteFiles?: boolean): Promise<void>;
   onDownloadProgress(callback: (jobs: DownloadJob[]) => void): () => void;
+  // Auto-update
+  getAppVersion(): Promise<string>;
+  checkForUpdate(): Promise<void>;
+  onUpdateAvailable(callback: (info: UpdateInfo) => void): () => void;
+  onUpdateDownloaded(callback: () => void): () => void;
+  installUpdate(): void;
 }
 
 declare global {
