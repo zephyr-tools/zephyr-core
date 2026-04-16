@@ -28,10 +28,6 @@ interface DetailPageProps {
   onOpenDownloads?: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Trailer player — mp4 (Steam) or YouTube embed
-// ---------------------------------------------------------------------------
-
 function TrailerPlayer({ trailer }: { trailer: GameTrailer }): JSX.Element {
   if (trailer.type === 'youtube') {
     return (
@@ -61,7 +57,6 @@ function TrailerPlayer({ trailer }: { trailer: GameTrailer }): JSX.Element {
   );
 }
 
-// Loading placeholder shown while trailer is being fetched
 function TrailerSkeleton(): JSX.Element {
   return (
     <div
@@ -75,10 +70,6 @@ function TrailerSkeleton(): JSX.Element {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Screenshots strip
-// ---------------------------------------------------------------------------
 
 function ScreenshotsStrip({ urls }: { urls: string[] }): JSX.Element {
   const [selected, setSelected] = useState(0);
@@ -113,10 +104,6 @@ function ScreenshotsStrip({ urls }: { urls: string[] }): JSX.Element {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Metadata pill
-// ---------------------------------------------------------------------------
-
 function MetaPill({ label, value }: { label: string; value: string }): JSX.Element {
   return (
     <div className="flex flex-col gap-0.5 rounded-xl bg-zinc-900/60 px-4 py-3">
@@ -127,10 +114,6 @@ function MetaPill({ label, value }: { label: string; value: string }): JSX.Eleme
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -406,10 +389,6 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
   );
 }
 
-// ---------------------------------------------------------------------------
-// Group prerequisites
-// ---------------------------------------------------------------------------
-
 function PrerequisitesSection({ prereqs }: { prereqs: GroupPrerequisites }): JSX.Element {
   return (
     <div className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
@@ -457,10 +436,6 @@ function PrerequisitesSection({ prereqs }: { prereqs: GroupPrerequisites }): JSX
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Torrent search results
-// ---------------------------------------------------------------------------
 
 function TorrentResults({
   results,

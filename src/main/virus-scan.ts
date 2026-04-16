@@ -29,8 +29,6 @@ export interface ScanResult {
   info?: string;
 }
 
-// ---- Windows Defender -----------------------------------------------------
-
 async function defenderAvailable(): Promise<boolean> {
   try {
     await fsp.access(DEFENDER_PATH, fs.constants.X_OK);
@@ -92,8 +90,6 @@ function parseDefenderOutput(stdout: string): string {
   }
   return 'Windows Defender detected a threat';
 }
-
-// ---- VirusTotal hash lookup -----------------------------------------------
 
 async function sha256File(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -193,8 +189,6 @@ async function checkVirusTotal(targetPath: string, apiKey: string): Promise<Scan
 
   return filesToCheck.length > 0 ? { status: 'clean' } : null;
 }
-
-// ---- Public entry point ---------------------------------------------------
 
 export async function scanDownload(
   savePath: string,

@@ -19,7 +19,7 @@ interface PersistedJob {
   origin: 'webtorrent' | 'real-debrid';
 }
 
-function displayNameFromMagnet(magnetUri: string): string {
+export function displayNameFromMagnet(magnetUri: string): string {
   try {
     const dn = new URLSearchParams(magnetUri.split('?')[1] ?? '').get('dn');
     return dn ? decodeURIComponent(dn.replace(/\+/g, ' ')) : magnetUri.slice(20, 60);
@@ -138,7 +138,7 @@ export class TorrentClient {
         }
       }
     } catch {
-      // No saved state — fresh start
+      // no saved state
     }
 
     this.progressTimer = setInterval(() => this._broadcast(), 1000);

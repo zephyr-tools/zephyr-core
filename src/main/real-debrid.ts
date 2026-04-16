@@ -2,11 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DownloadJob } from '@shared/types';
 import { app, net } from 'electron';
-import type { TorrentClient } from './torrent-client.js';
+import { displayNameFromMagnet, type TorrentClient } from './torrent-client.js';
 
 const API_BASE = 'https://api.real-debrid.com/rest/1.0';
-
-// ---- API response types ---------------------------------------------------
 
 interface RdAddMagnetResponse {
   id: string;
@@ -41,8 +39,6 @@ const RD_PROGRESS_STATUSES = new Set([
   'waiting_files_selection',
 ]);
 
-// ---- Service --------------------------------------------------------------
-
 export class RealDebridService {
   private polls = new Map<string, ReturnType<typeof setInterval>>();
 
@@ -73,8 +69,6 @@ export class RealDebridService {
     }
     return res.json() as Promise<T>;
   }
-
-  // ---- Public API ---------------------------------------------------------
 
   async download(magnetUri: string, expectedSize?: number): Promise<DownloadJob> {
     const hashMatch = /urn:btih:([a-fA-F0-9]{40})/i.exec(magnetUri);
@@ -117,8 +111,6 @@ export class RealDebridService {
     for (const timer of this.polls.values()) clearInterval(timer);
     this.polls.clear();
   }
-
-  // ---- Internals ----------------------------------------------------------
 
   private _poll(infoHash: string, rdId: string): void {
     const timer = setInterval(async () => {
@@ -237,14 +229,5 @@ export class RealDebridService {
         downloadSpeed: 0,
       });
     }
-  }
-}
-
-function displayNameFromMagnet(magnetUri: string): string {
-  try {
-    const dn = new URLSearchParams(magnetUri.split('?')[1] ?? '').get('dn');
-    return dn ? decodeURIComponent(dn.replace(/\+/g, ' ')) : 'Unknown torrent';
-  } catch {
-    return 'Unknown torrent';
   }
 }

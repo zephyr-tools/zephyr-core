@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { JSX } from 'react';
 import { cn } from '@/lib/cn';
+import { formatSize } from '@/lib/format';
 
 interface DownloadsDrawerProps {
   open: boolean;
@@ -42,7 +43,7 @@ export function DownloadsDrawer({ open, onClose, jobs }: DownloadsDrawerProps): 
           </span>
         )}
         {totalDown > 0 && (
-          <span className="text-xs text-zinc-500">↓ {formatBytes(totalDown)}/s</span>
+          <span className="text-xs text-zinc-500">↓ {formatSize(totalDown)}/s</span>
         )}
         <button
           type="button"
@@ -92,9 +93,9 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
               RD
             </span>
           )}
-          {isActive && job.downloadSpeed > 0 && <span>↓ {formatBytes(job.downloadSpeed)}/s</span>}
+          {isActive && job.downloadSpeed > 0 && <span>↓ {formatSize(job.downloadSpeed)}/s</span>}
           {(isActive || isSeeding) && job.uploadSpeed > 0 && (
-            <span>↑ {formatBytes(job.uploadSpeed)}/s</span>
+            <span>↑ {formatSize(job.uploadSpeed)}/s</span>
           )}
           {isQueued && <span className="text-zinc-500 font-medium">Queued</span>}
           {isSeeding && <span className="text-emerald-500 font-medium">Complete</span>}
@@ -166,7 +167,7 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
       {/* Row 3: size info */}
       {job.totalSize > 0 && (
         <div className="text-xs text-zinc-600">
-          {formatBytes(job.downloaded)} / {formatBytes(job.totalSize)}
+          {formatSize(job.downloaded)} / {formatSize(job.totalSize)}
         </div>
       )}
     </div>
@@ -228,12 +229,4 @@ function ScanBadge({
       Unsure
     </span>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

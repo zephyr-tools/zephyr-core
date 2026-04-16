@@ -24,7 +24,7 @@ const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 
 const settings = new SettingsStore();
-let predb: PredbClient | null = null;
+const predb = new PredbClient();
 let artwork: ArtworkService | null = null;
 let gameDetails: GameDetailsService | null = null;
 const torrentClient = new TorrentClient(() => mainWindow);
@@ -51,8 +51,6 @@ const realDebrid = new RealDebridService(() => settings.snapshot().realDebridApi
 
 async function ensureServices(): Promise<void> {
   await settings.get();
-  // Rebuild on every settings change — these objects are cheap.
-  predb = new PredbClient();
   if (!artwork) {
     artwork = new ArtworkService(() => settings.snapshot().geminiApiKey);
   }
@@ -99,7 +97,7 @@ function createWindow(): void {
 function registerIpc(): void {
   ipcMain.handle('predb:list', async (_event, query: ReleaseListQuery) => {
     await ensureServices();
-    return predb!.list(query);
+    return predb.list(query);
   });
 
   ipcMain.handle('artwork:get', async (_event, title: string) => {
@@ -149,7 +147,6 @@ function registerIpc(): void {
     if (typeof fullPath === 'string') shell.showItemInFolder(fullPath);
   });
 
-  // ---- Torrent ----
   ipcMain.handle('torrent:search', async (_event, name: string, title: string) =>
     searchTorrents(name, title),
   );

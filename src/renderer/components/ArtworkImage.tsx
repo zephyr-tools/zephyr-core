@@ -52,28 +52,25 @@ export function ArtworkImage({ title, className, noOverlay }: ArtworkImageProps)
         </>
       ) : null}
 
-      {/* No-art tile: shown when lookup returned nothing or errored */}
       {(query.isError || (query.isSuccess && !query.data?.imageUrl)) && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900">
-          <ImageOff className="h-8 w-8 text-zinc-700" />
-          <span className="text-[11px] text-zinc-600">no artwork</span>
-        </div>
-      )}
-
-      {/* Refresh button — visible when art is missing */}
-      {(query.isError || (query.isSuccess && !query.data?.imageUrl)) && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void window.api.refreshArtwork(title).then(() => query.refetch());
-          }}
-          className="absolute right-2 top-2 z-10 rounded-full bg-zinc-950/70 p-1.5 text-zinc-300 opacity-0 backdrop-blur transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
-          title="Re-fetch artwork"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </button>
+        <>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900">
+            <ImageOff className="h-8 w-8 text-zinc-700" />
+            <span className="text-[11px] text-zinc-600">no artwork</span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void window.api.refreshArtwork(title).then(() => query.refetch());
+            }}
+            className="absolute right-2 top-2 z-10 rounded-full bg-zinc-950/70 p-1.5 text-zinc-300 opacity-0 backdrop-blur transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
+            title="Re-fetch artwork"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+        </>
       )}
     </div>
   );

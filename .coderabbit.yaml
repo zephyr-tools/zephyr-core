@@ -1,0 +1,186 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en"
+early_access: false
+
+tone_instructions: >
+  Be direct and concise. Focus on correctness, security, and adherence to the
+  project's Electron three-process isolation model. Flag any cross-process
+  import violations immediately. Use neutral language — this project handles
+  BitTorrent protocol integrations and should never be described in terms that
+  imply or encourage illegal use.
+
+reviews:
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  sequence_diagrams: true
+
+  path_filters:
+    # Build output and dependencies
+    - "!out/**"
+    - "!node_modules/**"
+    - "!dist/**"
+
+    # Lock files and generated artifacts
+    - "!**/package-lock.json"
+    - "!**/*.lock"
+
+    # Binary and media assets
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!**/*.ico"
+    - "!**/*.svg"
+    - "!**/*.woff"
+    - "!**/*.woff2"
+
+    # Misc
+    - "!**/*.xml"
+    - "!**/__generated__/**"
+    - "!**/generated/**"
+
+  path_instructions:
+    # ── Main process ──────────────────────────────────────────────────────
+    - path: "src/main/**/*.ts"
+      instructions: |
+        This is the Electron **main process**. Review for:
+
+        **Process isolation** — Must never import from `src/renderer/` or `src/preload/`.
+        Only `src/shared/` (zero-dep types) is allowed as a cross-boundary import.
+
+        **Network requests** — Must use `electron.net.fetch`, never `global.fetch` or
+        `node-fetch`. This ensures proxy support and avoids CSP issues.
+
+        **Windows file URLs** — Must use `pathToFileURL()` / `fileURLToPath()` from
+        `node:url`. Never string-concatenate `file://` + path.
+
+        **WebTorrent v2 gotchas** —
+        - `wt.get(hash)` returns a Promise in v2.8.5 — use `wt.torrents.find()` for sync access.
+        - `torrent.length` is undefined before metadata — always guard.
+        - `wt.remove()` takes a hash string, not a Torrent object.
+
+        **IPC handlers** — Channel names must follow `noun:action` convention.
+        Handlers are registered in `src/main/index.ts`.
+
+        **Security** — Flag any command injection vectors (especially in
+        `virus-scan.ts` shell commands), unvalidated file paths, or missing
+        input sanitization at system boundaries.
+
+        **Error handling** — External API calls (Steam, Gemini, Real-Debrid,
+        VirusTotal, predb.net) should handle network failures gracefully.
+
+    # ── Preload ───────────────────────────────────────────────────────────
+    - path: "src/preload/**/*.ts"
+      instructions: |
+        This is the Electron **preload / context bridge**. Review for:
+
+        **Minimal surface** — Should only expose IPC channels via
+        `contextBridge.exposeInMainWorld`. No business logic belongs here.
+
+        **Process isolation** — Must never import from `src/main/` or `src/renderer/`.
+        Only `src/shared/` types are allowed.
+
+        **Type safety** — Every exposed method must match its declaration in
+        `BridgeApi` (defined in `src/shared/types.ts`). Flag any mismatches.
+
+        **Security** — No `nodeIntegration`, no `contextIsolation: false`.
+        The bridge must not leak Node.js APIs to the renderer.
+
+    # ── Renderer ──────────────────────────────────────────────────────────
+    - path: "src/renderer/**/*.{ts,tsx}"
+      instructions: |
+        This is the **renderer process** (React 19 + TanStack Query + Zustand).
+        Review for:
+
+        **Process isolation** — Must never import from `src/main/` or `src/preload/`.
+        Access main process via `window.api` (the context bridge). Only
+        `src/shared/` types are allowed as cross-boundary imports.
+
+        **State management** —
+        - Server/async state: TanStack Query (NOT useState/useEffect for data fetching).
+        - Transient UI state: Zustand `useUiStore`.
+        - Push events: `useDownloads()` hook for `torrent:progress` IPC subscription.
+        - Flag any use of Recoil, Redux, or raw `useEffect` for data fetching.
+
+        **Styling** — Tailwind v4 (CSS-first, no `tailwind.config.js`). Dark zinc
+        palette with `brand-*` violet accents. Use `cn()` from `@/lib/cn` for
+        conditional classes. Flag inline `style={}` when Tailwind classes suffice.
+
+        **Path aliases** — `@/*` maps to `src/renderer/*`, `@shared/*` maps to
+        `src/shared/*`. Flag bare relative imports that should use aliases.
+
+        **React best practices** — React 19 patterns, proper key props, no
+        unnecessary re-renders, correct dependency arrays in hooks.
+
+    # ── Shared types ──────────────────────────────────────────────────────
+    - path: "src/shared/**/*.ts"
+      instructions: |
+        This is the **shared types** layer imported by all three processes.
+        Review for:
+
+        **Zero runtime dependencies** — Must contain only TypeScript types and
+        interfaces. No runtime code, no function implementations, no imports from
+        npm packages. Pure type declarations only.
+
+        **BridgeApi completeness** — If a new IPC channel is added, its type must
+        appear in `BridgeApi`. Flag any IPC handler in main that lacks a
+        corresponding `BridgeApi` entry.
+
+    # ── Electron & build config ───────────────────────────────────────────
+    - path: "electron.vite.config.ts"
+      instructions: |
+        Electron-vite build configuration. Verify that main/preload/renderer
+        entries are correct and that path aliases (`@/`, `@shared/`) are
+        properly resolved for each target.
+
+    - path: "electron-builder.yml"
+      instructions: |
+        Electron Builder packaging config. Primary target is Windows. Flag any
+        missing file associations, incorrect output paths, or security-sensitive
+        packaging options (e.g. `asar: false` without justification).
+
+    # ── Biome config ──────────────────────────────────────────────────────
+    - path: "biome.json"
+      instructions: |
+        BiomeJS v2 linter/formatter config. Project conventions: 2-space indent,
+        100-char lines, single quotes, trailing commas, always-semicolons,
+        arrow parens always. Tailwind CSS directives enabled. Verify any rule
+        changes are intentional and documented.
+
+    # ── Package manifest ────────────────────────────────────────────────
+    - path: "package.json"
+      instructions: |
+        **Exact dependency pinning** — This project requires exact version
+        pinning for all dependencies. Every version in `dependencies` and
+        `devDependencies` must be an exact semver string (e.g. `"1.2.3"`).
+        Flag any version prefixed with `^`, `~`, `>=`, `>`, `<`, `<=`, or `*`.
+        The only exception is pre-release tags like `6.0.0-beta.1` which are
+        already exact. This ensures reproducible builds across all environments.
+
+    # ── CSS ───────────────────────────────────────────────────────────────
+    - path: "**/*.css"
+      instructions: |
+        Tailwind v4 CSS-first configuration. No `tailwind.config.js` — all
+        customization is in CSS. Verify `@theme` directives and custom
+        properties follow the existing dark zinc + brand-violet palette.
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+      - "wip"
+      - "draft"
+    drafts: false
+    base_branches:
+      - "main"
+      - "develop"
+      - "release/.*"
+      - "feat/.*"
+
+chat:
+  auto_reply: true

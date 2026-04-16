@@ -17,10 +17,6 @@ import { net } from 'electron';
 
 const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
 
-// ---------------------------------------------------------------------------
-// Steam
-// ---------------------------------------------------------------------------
-
 interface SteamAppData {
   type?: string;
   name?: string;
@@ -122,10 +118,6 @@ async function steamSearch(title: string): Promise<GameDetails | null> {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// YouTube Data API v3 (primary trailer source)
-// ---------------------------------------------------------------------------
-
 interface YouTubeSearchItem {
   id: { videoId: string };
   snippet: { title: string; channelTitle: string };
@@ -171,10 +163,6 @@ async function fetchTrailerByYouTubeApi(
   );
   return { type: 'youtube', url: videoId };
 }
-
-// ---------------------------------------------------------------------------
-// Gemini fallback (when YouTube API is not enabled)
-// ---------------------------------------------------------------------------
 
 function extractAllYouTubeIds(text: string): string[] {
   const patterns = [
@@ -237,10 +225,6 @@ async function fetchTrailerByGemini(title: string, apiKey: string): Promise<Game
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
 export class GameDetailsService {
   private detailsCache = new Map<string, GameDetails>();
   private trailerCache = new Map<string, GameTrailer | null>();
@@ -295,7 +279,6 @@ export class GameDetailsService {
   }
 
   private async fetchTrailer(title: string, apiKey: string): Promise<GameTrailer | null> {
-    // 1. YouTube Data API (accurate, embeddable-filtered)
     const ytKey = this.getYouTubeApiKey();
     if (!this.youtubeApiDisabled && ytKey) {
       try {
@@ -311,7 +294,6 @@ export class GameDetailsService {
       }
     }
 
-    // 2. Gemini grounding fallback
     return fetchTrailerByGemini(title, apiKey);
   }
 
@@ -327,8 +309,6 @@ export class GameDetailsService {
     this.detailsCache.set(key, result);
     return result;
   }
-
-  // ---- Group prerequisites (Gemini grounded search) -------------------------
 
   getGroupPrerequisites(group: string, releaseName: string): Promise<GroupPrerequisites> {
     const key = group.toLowerCase().trim();
@@ -368,10 +348,6 @@ export class GameDetailsService {
     return promise;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Gemini: group prerequisites lookup
-// ---------------------------------------------------------------------------
 
 const PREREQ_SCHEMA = {
   type: Type.OBJECT,

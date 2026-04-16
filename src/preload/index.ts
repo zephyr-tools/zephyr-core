@@ -26,13 +26,10 @@ const api: BridgeApi = {
   showItemInFolder: (fullPath: string): void =>
     ipcRenderer.send('shell:show-item-in-folder', fullPath),
 
-  // ---- Torrent search (no UI yet) ----
   searchTorrents: (name: string, title: string) =>
     ipcRenderer.invoke('torrent:search', name, title),
   addTorrent: (magnetUri: string, expectedSize?: number) =>
     ipcRenderer.invoke('torrent:add', magnetUri, expectedSize),
-
-  // ---- Download management ----
   listDownloads: (): Promise<DownloadJob[]> => ipcRenderer.invoke('torrent:list'),
   pauseDownload: (infoHash: string): Promise<void> => ipcRenderer.invoke('torrent:pause', infoHash),
   resumeDownload: (infoHash: string): Promise<void> =>

@@ -2,8 +2,6 @@ import type { TorrentResult } from '@shared/types';
 import { net } from 'electron';
 import { getTrackers } from './tracker-list.js';
 
-// ---- The Pirate Bay via apibay.org ----------------------------------------
-
 interface TpbRow {
   info_hash: string;
   name: string;
@@ -51,8 +49,6 @@ async function searchTpb(query: string): Promise<TorrentResult[]> {
   });
 }
 
-// ---- Query derivation -----------------------------------------------------
-
 /** Strip scene group tag, dots→spaces, remove common noise tags. */
 function cleanSceneName(name: string): string {
   return (
@@ -97,16 +93,12 @@ function deriveQueries(name: string, title: string): string[] {
   return queries;
 }
 
-// ---- Filtering ------------------------------------------------------------
-
 /** Scene convention: name must end with `-GROUP` (alphanumeric, 2+ chars). */
 const GROUP_TAG_RE = /-[A-Za-z0-9]{2,}$/;
 
 function hasGroupTag(name: string): boolean {
   return GROUP_TAG_RE.test(name.trim());
 }
-
-// ---- Public entry point ---------------------------------------------------
 
 export async function searchTorrents(name: string, title: string): Promise<TorrentResult[]> {
   const queries = deriveQueries(name, title);
