@@ -144,6 +144,14 @@ BiomeJS v2 (replaced ESLint + Prettier). Config in `biome.json`.
 - Import organization via `assist`
 - Tailwind CSS directive support enabled
 
+## Git Workflow
+Never commit directly to `main`. For every set of changes:
+1. Create a descriptive feature branch from `main` (e.g. `feat/trailer-autoplay`, `fix/scan-timeout`, `chore/bump-deps`)
+2. Commit work to that branch with clear, conventional commit messages
+3. Push the branch and open a PR to `main` using `gh pr create`
+
+If already on a feature branch, continue working there — do not create a new one.
+
 ## Dev Commands
 ```bash
 npm run dev        # Electron + Vite HMR
