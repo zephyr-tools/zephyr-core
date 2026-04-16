@@ -1,6 +1,12 @@
-# Zephyr
+<p align="center">
+  <img src="docs/zephyr-logo.png" alt="Zephyr" width="400">
+</p>
 
-A desktop game discovery and exploration client built with Electron. Browse public game release databases, view cover artwork and metadata powered by Steam and Google Gemini, watch trailers, and manage downloads with built-in safety scanning.
+<p align="center">
+  A desktop game discovery and exploration client built with Electron.<br>
+  Browse public game release databases, view cover artwork and metadata powered by Steam and Google Gemini,<br>
+  watch trailers, and manage downloads with built-in safety scanning.
+</p>
 
 ## Disclaimer
 
