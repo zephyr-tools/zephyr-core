@@ -15,13 +15,9 @@ export function ReleaseCard({ release }: ReleaseCardProps): JSX.Element {
   const onOpen = (): void => setSelectedRelease(release);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') onOpen();
-      }}
       className={cn(
         'no-drag group relative flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-900/40 text-left cursor-pointer',
         'shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] transition-all',
@@ -62,6 +58,6 @@ export function ReleaseCard({ release }: ReleaseCardProps): JSX.Element {
           nuked
         </div>
       ) : null}
-    </div>
+    </button>
   );
 }
