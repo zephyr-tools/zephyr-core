@@ -3,11 +3,9 @@ language: "en"
 early_access: false
 
 tone_instructions: >
-  Be direct and concise. Focus on correctness, security, and adherence to the
-  project's Electron three-process isolation model. Flag any cross-process
-  import violations immediately. Use neutral language — this project handles
-  BitTorrent protocol integrations and should never be described in terms that
-  imply or encourage illegal use.
+  Be direct and concise. Focus on correctness, security, and Electron
+  three-process isolation. Flag cross-process import violations immediately.
+  Use neutral language for BitTorrent integrations.
 
 reviews:
   request_changes_workflow: true
