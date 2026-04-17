@@ -6,4 +6,3 @@ release
 *.log
 .env
 .env.local
-docs/
