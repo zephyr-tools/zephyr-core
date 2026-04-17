@@ -9,10 +9,15 @@ const ctx = await esbuild.context({
   bundle: true,
   format: 'esm',
   outfile: 'renderer.js',
+  // Use the automatic JSX runtime — esbuild will emit imports of
+  // `jsx`/`jsxs` from `react/jsx-runtime`, which our shim provides.
+  // WITHOUT this, esbuild uses the classic transform (React.createElement)
+  // and the plugin fails with "React is not defined" at render time.
+  jsx: 'automatic',
   // Redirect React imports to shims that read from the host app's window globals.
   // This ensures the plugin shares the host's React instance (required for hooks).
   alias: {
-    'react': resolve(cwd(), 'src/react-shim.js'),
+    react: resolve(cwd(), 'src/react-shim.js'),
     'react/jsx-runtime': resolve(cwd(), 'src/react-jsx-runtime-shim.js'),
   },
   platform: 'browser',

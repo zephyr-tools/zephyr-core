@@ -7,7 +7,7 @@ import { PluginErrorBoundary } from './PluginErrorBoundary';
 function PluginPageView(): JSX.Element {
   const pluginPage = useUiStore((s) => s.pluginPage);
   const setPluginPage = useUiStore((s) => s.setPluginPage);
-  const selectedRelease = useUiStore((s) => s.selectedRelease);
+  const lastViewedRelease = useUiStore((s) => s.lastViewedRelease);
   const { routes } = usePluginComponents();
 
   const route = routes.find((r) => r.id === pluginPage);
@@ -41,7 +41,7 @@ function PluginPageView(): JSX.Element {
               </div>
             }
           >
-            <LazyComponent release={selectedRelease ?? undefined} />
+            <LazyComponent release={lastViewedRelease ?? undefined} />
           </Suspense>
         </PluginErrorBoundary>
       </div>

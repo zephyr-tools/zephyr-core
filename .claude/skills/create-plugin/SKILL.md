@@ -81,8 +81,10 @@ or custom React buttons that can't be expressed as a simple IPC action.
 
 Reference the template at `examples/renderer-plugin-template/` — copy its structure:
 
-**`examples/plugins/$ARGUMENTS/esbuild.config.js`** — copy the template verbatim;
-it wires the React shim via esbuild's `alias` option. Key parts:
+**`examples/plugins/$ARGUMENTS/esbuild.config.js`** — copy the template verbatim.
+It wires the React shim via esbuild's `alias` and uses the automatic JSX runtime
+so the bundle never references a global `React`:
+
 ```js
 import esbuild from 'esbuild';
 import { resolve } from 'node:path';
@@ -93,6 +95,10 @@ await esbuild.build({
   bundle: true,
   format: 'esm',
   outfile: 'renderer.js',
+  // CRITICAL: automatic runtime emits `jsx`/`jsxs` imports. Without this,
+  // the classic transform emits `React.createElement(...)` and the plugin
+  // fails at render with "React is not defined".
+  jsx: 'automatic',
   alias: {
     // Redirect React imports to shims that read the host app's window globals.
     react: resolve(cwd(), 'src/react-shim.js'),
