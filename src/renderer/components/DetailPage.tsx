@@ -28,22 +28,33 @@ interface DetailPageProps {
   onOpenDownloads?: () => void;
 }
 
-function TrailerPlayer({ trailer }: { trailer: GameTrailer }): JSX.Element {
-  if (trailer.type === 'youtube') {
-    return (
-      <div
-        className="relative w-full overflow-hidden rounded-xl bg-black"
-        style={{ aspectRatio: '16/9' }}
-      >
+function YouTubeTrailer({ videoId }: { videoId: string }): JSX.Element {
+  const origin = useQuery({
+    queryKey: ['trailer-origin'],
+    queryFn: () => window.api.getTrailerOrigin(),
+    staleTime: Number.POSITIVE_INFINITY,
+  }).data;
+  return (
+    <div
+      className="relative w-full overflow-hidden rounded-xl bg-black"
+      style={{ aspectRatio: '16/9' }}
+    >
+      {origin && (
         <iframe
-          src={`https://www.youtube.com/embed/${trailer.url}?rel=0&modestbranding=1`}
+          src={`${origin}/?v=${encodeURIComponent(videoId)}`}
           title="Game Trailer"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
           allowFullScreen
           className="absolute inset-0 h-full w-full border-0"
         />
-      </div>
-    );
+      )}
+    </div>
+  );
+}
+
+function TrailerPlayer({ trailer }: { trailer: GameTrailer }): JSX.Element {
+  if (trailer.type === 'youtube') {
+    return <YouTubeTrailer videoId={trailer.url} />;
   }
 
   return (

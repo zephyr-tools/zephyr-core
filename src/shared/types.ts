@@ -177,6 +177,8 @@ export interface BridgeApi {
   resumeDownload(infoHash: string): Promise<void>;
   removeDownload(infoHash: string, deleteFiles?: boolean): Promise<void>;
   onDownloadProgress(callback: (jobs: DownloadJob[]) => void): () => void;
+  getTrailerOrigin(): Promise<string | null>;
+
   // Auto-update
   getAppVersion(): Promise<string>;
   checkForUpdate(): Promise<void>;

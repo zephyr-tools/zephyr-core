@@ -1,6 +1,7 @@
+import { createServer } from 'node:http';
 import path from 'node:path';
 import type { AppSettings, ReleaseListQuery } from '@shared/types';
-import { app, BrowserWindow, ipcMain, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
 import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.js';
 import { cachePaths } from './cache.js';
 import { GameDetailsService } from './details.js';
@@ -23,6 +24,7 @@ protocol.registerSchemesAsPrivileged([
 const isDev = !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
+let trailerOrigin: string | null = null;
 
 const settings = new SettingsStore();
 const predb = new PredbClient();
@@ -93,6 +95,32 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+}
+
+// YouTube rejects embeds whose parent origin isn't http(s) (error 152-4).
+// Wrap each embed in an iframe served from http://127.0.0.1 so YouTube sees
+// localhost as the parent instead of file://.
+async function startTrailerServer(): Promise<string> {
+  const server = createServer((req, res) => {
+    const videoId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('v') ?? '';
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+      res.writeHead(400).end();
+      return;
+    }
+    const embed = `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1&autoplay=0`;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(
+      `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style><iframe src="${embed}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe>`,
+    );
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      resolve(`http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`);
+    });
+  });
 }
 
 function registerIpc(): void {
@@ -175,8 +203,7 @@ function registerIpc(): void {
 
 app.whenReady().then(async () => {
   // Serve cached artwork via a custom scheme so the renderer can load local
-  // images regardless of whether it's running on http://localhost (dev) or
-  // file:// (prod). Chromium blocks cross-origin file:// loads, so we use
+  // images. Chromium blocks cross-origin file:// loads, so we use
   // artwork://local/<filename> instead.
   protocol.handle('artwork', async (req) => {
     const { createReadStream } = await import('node:fs');
@@ -195,23 +222,14 @@ app.whenReady().then(async () => {
     });
   });
 
-  // YouTube rejects iframes with no Referer (file:// sends none).
-  // Inject one so embeds work in both dev and production.
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*.youtube.com/*', '*://*.googlevideo.com/*', '*://*.ytimg.com/*'] },
-    (details, callback) => {
-      const headers = { ...details.requestHeaders };
-      if (!headers.Referer) headers.Referer = 'https://www.youtube.com/';
-      callback({ requestHeaders: headers });
-    },
-  );
-
   registerIpc();
   ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('app:trailer-origin', () => trailerOrigin);
   ipcMain.handle('update:check', () => (isDev ? Promise.resolve() : checkForUpdate()));
   ipcMain.on('update:install', () => quitAndInstall());
   await ensureServices();
   await torrentClient.init();
+  trailerOrigin = await startTrailerServer();
   createWindow();
 
   if (!isDev) {
