@@ -1,10 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { DownloadJob } from '@shared/types';
+import type { DownloadJob, RdPhase } from '@shared/types';
 import { app, net } from 'electron';
 import { displayNameFromMagnet, type TorrentClient } from './torrent-client.js';
 
 const API_BASE = 'https://api.real-debrid.com/rest/1.0';
+
+/** After this long in metadata-fetch with no seeders, warn the user. */
+const STUCK_METADATA_MS = 60_000;
 
 interface RdAddMagnetResponse {
   id: string;
@@ -39,8 +42,42 @@ const RD_PROGRESS_STATUSES = new Set([
   'waiting_files_selection',
 ]);
 
+function mapRdPhase(rdStatus: string): RdPhase {
+  switch (rdStatus) {
+    case 'magnet_conversion':
+    case 'waiting_files_selection':
+      return 'fetching-metadata';
+    case 'queued':
+      return 'queued-remote';
+    case 'downloading':
+      return 'rd-downloading';
+    case 'compressing':
+    case 'uploading':
+      return 'rd-processing';
+    default:
+      return 'fetching-metadata';
+  }
+}
+
+function friendlyErrorMessage(rdStatus: string): string {
+  switch (rdStatus) {
+    case 'magnet_error':
+      return 'Real-Debrid could not parse this magnet link.';
+    case 'dead':
+      return 'Real-Debrid reports this torrent as dead (no seeders found).';
+    case 'virus':
+      return 'Real-Debrid flagged this torrent as containing a virus.';
+    case 'error':
+      return 'Real-Debrid reported an error processing this torrent.';
+    default:
+      return `Real-Debrid: ${rdStatus}`;
+  }
+}
+
 export class RealDebridService {
   private polls = new Map<string, ReturnType<typeof setInterval>>();
+  /** When the job entered `fetching-metadata` — used to flag stuck magnets. */
+  private metadataStartedAt = new Map<string, number>();
 
   constructor(
     private getApiKey: () => string | null,
@@ -98,8 +135,11 @@ export class RealDebridService {
       downloaded: 0,
       addedAt: Date.now(),
       origin: 'real-debrid',
+      rdPhase: 'fetching-metadata',
+      rdRawStatus: 'magnet_conversion',
     };
     this.client.trackExternal(job);
+    this.metadataStartedAt.set(infoHash, Date.now());
 
     // 4. Start polling RD for completion
     this._poll(infoHash, rdId);
@@ -110,6 +150,7 @@ export class RealDebridService {
   destroy(): void {
     for (const timer of this.polls.values()) clearInterval(timer);
     this.polls.clear();
+    this.metadataStartedAt.clear();
   }
 
   private _poll(infoHash: string, rdId: string): void {
@@ -120,33 +161,60 @@ export class RealDebridService {
         if (info.status === 'downloaded') {
           clearInterval(timer);
           this.polls.delete(infoHash);
+          this.metadataStartedAt.delete(infoHash);
           this.client.updateExternal(infoHash, {
             name: info.filename || infoHash,
             totalSize: info.bytes,
             progress: 0.5, // RD phase done — local transfer starts
             status: 'downloading',
             downloadSpeed: 0,
+            rdPhase: 'transferring',
+            rdRawStatus: info.status,
+            rdMessage: undefined,
           });
           await this._transferFiles(infoHash, info.links, info.bytes);
         } else if (RD_PROGRESS_STATUSES.has(info.status)) {
           const rdProgress = info.progress / 100; // 0–1
+          const phase = mapRdPhase(info.status);
+          const seeders = info.seeders || 0;
+
+          // Clear the metadata-start timer once we move past metadata fetch.
+          if (phase !== 'fetching-metadata') {
+            this.metadataStartedAt.delete(infoHash);
+          }
+
+          let rdMessage: string | undefined;
+          if (phase === 'fetching-metadata') {
+            const startedAt = this.metadataStartedAt.get(infoHash) ?? Date.now();
+            if (Date.now() - startedAt > STUCK_METADATA_MS && seeders === 0) {
+              rdMessage =
+                'No seeders found yet — this torrent may be unavailable. You can wait or remove and try another.';
+            }
+          }
+
           this.client.updateExternal(infoHash, {
             name: info.filename || infoHash,
             totalSize: info.bytes || 0,
             downloaded: Math.round((info.bytes || 0) * rdProgress),
             progress: rdProgress * 0.5, // 0–50% for RD phase
             downloadSpeed: info.speed || 0,
-            numPeers: info.seeders || 0,
+            numPeers: seeders,
             status: 'downloading',
+            rdPhase: phase,
+            rdRawStatus: info.status,
+            rdMessage,
           });
         } else if (RD_ERROR_STATUSES.has(info.status)) {
           clearInterval(timer);
           this.polls.delete(infoHash);
+          this.metadataStartedAt.delete(infoHash);
           // Clean up the RD torrent
           await this.api<void>('DELETE', `/torrents/delete/${rdId}`).catch(() => {});
           this.client.updateExternal(infoHash, {
             status: 'error',
-            error: `Real-Debrid: ${info.status}`,
+            error: friendlyErrorMessage(info.status),
+            rdRawStatus: info.status,
+            rdMessage: undefined,
           });
         }
       } catch (err) {
@@ -179,9 +247,11 @@ export class RealDebridService {
       let totalDownloaded = 0;
       let lastSpeedCheck = Date.now();
       let lastSpeedBytes = 0;
+      let firstFilePath: string | undefined;
 
       for (const file of files) {
         const filePath = path.join(savePath, file.filename);
+        if (!firstFilePath) firstFilePath = filePath;
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 
         const res = await net.fetch(file.download);
@@ -216,11 +286,18 @@ export class RealDebridService {
         }
       }
 
+      // Reveal the single file if there's only one, otherwise the save folder
+      // (RD writes files flat into savePath — no parent folder to highlight).
+      const revealPath = files.length === 1 && firstFilePath ? firstFilePath : savePath;
+
       this.client.updateExternal(infoHash, {
         downloaded: totalDownloaded,
         progress: 1,
         status: 'seeding', // complete
         downloadSpeed: 0,
+        rdPhase: undefined,
+        rdMessage: undefined,
+        revealPath,
       });
     } catch (err) {
       this.client.updateExternal(infoHash, {

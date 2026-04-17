@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import type { AppSettings, ReleaseListQuery } from '@shared/types';
@@ -178,7 +179,21 @@ function registerIpc(): void {
   });
 
   ipcMain.on('shell:show-item-in-folder', (_event, fullPath: string) => {
-    if (typeof fullPath === 'string') shell.showItemInFolder(fullPath);
+    if (typeof fullPath !== 'string' || fullPath.length === 0) return;
+    // `shell.showItemInFolder` silently no-ops on non-existent paths on Windows.
+    // Walk up to the nearest existing ancestor so the click always does *something*.
+    let target = fullPath;
+    while (target && !existsSync(target)) {
+      const parent = path.dirname(target);
+      if (parent === target) return; // hit the root without finding anything
+      target = parent;
+    }
+    if (target === fullPath) {
+      shell.showItemInFolder(target);
+    } else {
+      // Path moved/deleted — just open the nearest surviving folder.
+      void shell.openPath(target);
+    }
   });
 
   ipcMain.handle('torrent:search', async (_event, name: string, title: string) =>

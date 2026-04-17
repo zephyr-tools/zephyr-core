@@ -1,5 +1,6 @@
-import type { DownloadJob } from '@shared/types';
+import type { DownloadJob, RdPhase } from '@shared/types';
 import {
+  AlertTriangle,
   ArrowDownToLine,
   ChevronDown,
   Cloud,
@@ -15,6 +16,14 @@ import {
 import type { JSX } from 'react';
 import { cn } from '@/lib/cn';
 import { formatSize } from '@/lib/format';
+
+const RD_PHASE_LABELS: Record<RdPhase, string> = {
+  'fetching-metadata': 'Finding peers on Real-Debrid…',
+  'queued-remote': 'Queued on Real-Debrid',
+  'rd-downloading': 'Downloading on Real-Debrid',
+  'rd-processing': 'Processing on Real-Debrid',
+  transferring: 'Transferring to your disk',
+};
 
 interface DownloadsDrawerProps {
   open: boolean;
@@ -77,6 +86,8 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
   const isSeeding = job.status === 'seeding';
   const isError = job.status === 'error';
   const isRd = job.origin === 'real-debrid';
+  const rdPhaseLabel = isRd && job.rdPhase ? RD_PHASE_LABELS[job.rdPhase] : null;
+  const peerLabel = isRd ? 'S' : 'P';
 
   return (
     <div className="flex flex-col gap-1.5 border-b border-zinc-900/60 px-5 py-3">
@@ -104,7 +115,12 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
               Error
             </span>
           )}
-          {job.numPeers > 0 && <span>{job.numPeers}P</span>}
+          {job.numPeers > 0 && (
+            <span>
+              {job.numPeers}
+              {peerLabel}
+            </span>
+          )}
           <ScanBadge scanStatus={job.scanStatus} scanInfo={job.scanInfo} />
         </div>
 
@@ -132,7 +148,7 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
           {isSeeding && (
             <button
               type="button"
-              onClick={() => window.api.showItemInFolder(`${job.savePath}\\${job.name}`)}
+              onClick={() => window.api.showItemInFolder(job.revealPath ?? job.savePath)}
               className="rounded p-1 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
               title="Show in folder"
             >
@@ -164,10 +180,32 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
         <span className="w-8 shrink-0 text-right text-xs text-zinc-500">{pct}%</span>
       </div>
 
-      {/* Row 3: size info */}
-      {job.totalSize > 0 && (
-        <div className="text-xs text-zinc-600">
-          {formatSize(job.downloaded)} / {formatSize(job.totalSize)}
+      {/* Row 3: phase label + size info */}
+      <div className="flex items-center justify-between gap-3 text-xs">
+        {rdPhaseLabel && isActive ? (
+          <span className="inline-flex items-center gap-1.5 text-zinc-400">
+            <Loader2 className="h-3 w-3 animate-spin text-zinc-500" />
+            {rdPhaseLabel}
+          </span>
+        ) : isError && job.error ? (
+          <span className="truncate text-red-400/80" title={job.error}>
+            {job.error}
+          </span>
+        ) : (
+          <span />
+        )}
+        {job.totalSize > 0 && (
+          <span className="shrink-0 text-zinc-600">
+            {formatSize(job.downloaded)} / {formatSize(job.totalSize)}
+          </span>
+        )}
+      </div>
+
+      {/* Row 4: non-fatal RD hint (e.g. "no seeders yet") */}
+      {job.rdMessage && isActive && (
+        <div className="inline-flex items-start gap-1.5 rounded-md bg-yellow-900/20 px-2 py-1 text-[11px] text-yellow-300/90">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span>{job.rdMessage}</span>
         </div>
       )}
     </div>

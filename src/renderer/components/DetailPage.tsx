@@ -13,6 +13,7 @@ import {
   Clock,
   ExternalLink,
   HardDrive,
+  Info,
   Loader2,
   Play,
   Users,
@@ -418,6 +419,14 @@ function PrerequisitesSection({ prereqs }: { prereqs: GroupPrerequisites }): JSX
       <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
         Install Requirements — {prereqs.group}
       </h3>
+
+      <div className="flex items-start gap-2 rounded-lg bg-zinc-900/60 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500" />
+        <span>
+          Shown for research and preservation context only. Only apply to software you lawfully own.
+          AI-generated — verify before executing any step.
+        </span>
+      </div>
 
       {prereqs.summary && (
         <p className="text-sm leading-relaxed text-zinc-400">{prereqs.summary}</p>
