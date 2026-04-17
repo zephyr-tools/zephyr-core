@@ -3,6 +3,8 @@ import type {
   Artwork,
   BridgeApi,
   DownloadJob,
+  LoadedPlugin,
+  PluginUi,
   ReleaseListQuery,
   ReleaseListResult,
 } from '@shared/types';
@@ -59,6 +61,13 @@ const api: BridgeApi = {
     return () => ipcRenderer.removeListener('update:downloaded', handler);
   },
   installUpdate: () => ipcRenderer.send('update:install'),
+
+  // Plugin system
+  getPluginUi: (): Promise<PluginUi> => ipcRenderer.invoke('plugins:get-ui'),
+  invokePlugin: (channel: string, payload: unknown): Promise<unknown> =>
+    ipcRenderer.invoke(channel, payload),
+  installPlugin: (url: string): Promise<string> => ipcRenderer.invoke('plugins:install', url),
+  listPlugins: (): Promise<LoadedPlugin[]> => ipcRenderer.invoke('plugins:list'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

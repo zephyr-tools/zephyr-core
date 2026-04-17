@@ -7,6 +7,7 @@ import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.
 import { cachePaths } from './cache.js';
 import { GameDetailsService } from './details.js';
 import { ArtworkService } from './gemini.js';
+import { PluginHost } from './plugin-host.js';
 import { PredbClient } from './predb.js';
 import { RealDebridService } from './real-debrid.js';
 import { SettingsStore } from './settings.js';
@@ -34,6 +35,7 @@ let gameDetails: GameDetailsService | null = null;
 const torrentClient = new TorrentClient(() => mainWindow);
 
 torrentClient.setOnComplete((job) => {
+  pluginHost.notifyDownloadComplete(job);
   const vtKey = settings.snapshot().virusTotalApiKey;
   torrentClient.updateExternal(job.infoHash, { scanStatus: 'scanning' });
   scanDownload(job.savePath, job.name, vtKey)
@@ -52,6 +54,7 @@ torrentClient.setOnComplete((job) => {
 });
 
 const realDebrid = new RealDebridService(() => settings.snapshot().realDebridApiKey, torrentClient);
+const pluginHost = new PluginHost();
 
 async function ensureServices(): Promise<void> {
   await settings.get();
@@ -67,12 +70,16 @@ async function ensureServices(): Promise<void> {
 }
 
 function createWindow(): void {
+  const iconExt = process.platform === 'darwin' ? 'icns' : process.platform === 'win32' ? 'ico' : 'png';
+  const iconPath = path.join(__dirname, `../../build/icon.${iconExt}`);
+
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 880,
     minWidth: 920,
     minHeight: 640,
     backgroundColor: '#09090b',
+    icon: iconPath,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     autoHideMenuBar: true,
     webPreferences: {
@@ -219,6 +226,10 @@ function registerIpc(): void {
   ipcMain.handle('torrent:remove', async (_event, infoHash: string, deleteFiles?: boolean) =>
     torrentClient.remove(infoHash, deleteFiles),
   );
+
+  ipcMain.handle('plugins:get-ui', () => pluginHost.getUi());
+  ipcMain.handle('plugins:list', () => pluginHost.getLoadedPlugins());
+  ipcMain.handle('plugins:install', async (_event, url: string) => pluginHost.installFromUrl(url));
 }
 
 app.whenReady().then(async () => {
@@ -249,6 +260,7 @@ app.whenReady().then(async () => {
   ipcMain.on('update:install', () => quitAndInstall());
   await ensureServices();
   await torrentClient.init();
+  await pluginHost.load();
   trailerOrigin = await startTrailerServer();
   createWindow();
 

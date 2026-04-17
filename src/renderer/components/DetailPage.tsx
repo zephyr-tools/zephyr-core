@@ -19,6 +19,7 @@ import {
   Users,
 } from 'lucide-react';
 import { type JSX, useEffect, useRef, useState } from 'react';
+import { invokePluginAction, usePluginUi } from '@/contexts/PluginContext';
 import { cn } from '@/lib/cn';
 import { formatRelativeTime, formatSize } from '@/lib/format';
 import { ArtworkImage } from './ArtworkImage';
@@ -215,6 +216,7 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
       onOpenDownloads?.();
     },
   });
+  const pluginUi = usePluginUi();
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -241,6 +243,16 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
             View Release
           </button>
         )}
+        {pluginUi.detailButtons.map((btn) => (
+          <button
+            key={btn.action}
+            type="button"
+            onClick={() => void invokePluginAction(btn.action, release)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+          >
+            {btn.label}
+          </button>
+        ))}
       </div>
 
       {/* ── Scrollable body ─────────────────────────────────────────────── */}

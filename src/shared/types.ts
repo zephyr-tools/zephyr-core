@@ -178,6 +178,45 @@ export interface UpdateInfo {
   releaseNotes?: string;
 }
 
+// ---- Plugin types ----
+
+export interface PluginButtonSpec {
+  label: string;
+  /** Full IPC channel including 'plugin:' prefix. */
+  action: string;
+  icon?: string;
+}
+
+export interface PluginSectionSpec {
+  title: string;
+  action: string;
+}
+
+export interface PluginCardMenuItemSpec {
+  label: string;
+  action: string;
+}
+
+export interface PluginSettingSpec {
+  key: string;
+  label: string;
+  type: 'text' | 'password' | 'toggle';
+  pluginId: string;
+}
+
+export interface PluginUi {
+  detailButtons: PluginButtonSpec[];
+  detailSections: PluginSectionSpec[];
+  cardMenuItems: PluginCardMenuItemSpec[];
+  settings: PluginSettingSpec[];
+}
+
+export interface LoadedPlugin {
+  id: string;
+  name: string;
+  version: string;
+}
+
 /** API exposed on `window.api` from the preload bridge. */
 export interface BridgeApi {
   listReleases(query: ReleaseListQuery): Promise<ReleaseListResult>;
@@ -208,6 +247,12 @@ export interface BridgeApi {
   onUpdateAvailable(callback: (info: UpdateInfo) => void): () => void;
   onUpdateDownloaded(callback: () => void): () => void;
   installUpdate(): void;
+
+  // Plugin system
+  getPluginUi(): Promise<PluginUi>;
+  invokePlugin(channel: string, payload: unknown): Promise<unknown>;
+  installPlugin(url: string): Promise<string>;
+  listPlugins(): Promise<LoadedPlugin[]>;
 }
 
 declare global {
