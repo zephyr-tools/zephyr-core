@@ -8,13 +8,18 @@
   watch trailers, and manage downloads with built-in safety scanning.
 </p>
 
-## Disclaimer
+## What Zephyr Is (and Isn't)
 
-Zephyr is a game discovery and information tool. It does **not** host, store, or distribute copyrighted content. BitTorrent is a legitimate peer-to-peer protocol widely used for distributing open-source software, game patches, public domain media, and other lawful content.
+Zephyr is a free, open-source desktop tool with **two independent functions**:
 
-Users are solely responsible for ensuring that their use of this software complies with all applicable laws in their jurisdiction and the terms of service of any third-party APIs or services integrated with Zephyr. The developers of Zephyr do not condone, encourage, or facilitate copyright infringement or any other illegal activity.
+1. **A release-information and discovery tool.** It aggregates publicly available metadata (release names, cover artwork, descriptions, trailers, screenshots) about video game releases from sources like `predb.net`, the Steam public storefront, YouTube, and Google Gemini. Metadata is information *about* a release, not the release itself — Zephyr does not host, mirror, or redistribute any copyrighted work.
+2. **A general-purpose BitTorrent client.** Built on WebTorrent, it's a neutral transport for the BitTorrent protocol — like qBittorrent, Transmission, or Deluge. BitTorrent has a long history of substantial non-infringing use (Linux ISOs, game patches, Internet Archive media, academic datasets, independent artists, and so on). The client will process any magnet link or `.torrent` the user supplies, just as a web browser will load any URL.
 
-By using this software, you agree that you will only use it for lawful purposes.
+Zephyr is developed as a personal open-source project. It is distributed free of charge under the MIT licence, has no paid tier, no advertising, no telemetry, and no affiliate or referral arrangements with any third-party service it interacts with. The authors derive no financial benefit, direct or indirect, from what any user chooses to do with the tool.
+
+**You are solely responsible** for ensuring your use of Zephyr complies with all applicable laws in your jurisdiction and with the terms of service of every third-party service it connects to (Steam, Google/Gemini, YouTube, Real-Debrid, VirusTotal, and any BitTorrent tracker or index). The authors do not condone, encourage, induce, or facilitate copyright infringement or any other unlawful activity, and prohibit such use.
+
+**By using Zephyr, you agree to the terms in [LEGAL.md](LEGAL.md).** Read it before use.
 
 ## Features
 
