@@ -355,6 +355,7 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       await window.api.removePlugin(pluginId);
       setRestartNeeded(true);
       qc.invalidateQueries({ queryKey: ['plugins-list'] });
+      qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
       setActionError((err as Error).message);
     }

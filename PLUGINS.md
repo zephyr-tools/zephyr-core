@@ -35,7 +35,7 @@ await window.api.installPluginFromZip('/absolute/path/to/my-plugin.zip'); // loc
 
 ### ZIP layout
 
-```
+```text
 my-plugin.zip
 └── my-plugin/              ← top-level directory; name becomes the plugin ID
     ├── index.js            ← required
@@ -82,7 +82,7 @@ Layer 1 is zero-config — plain ES modules, no build step. Layer 2 requires an 
 
 ### Plugin directory layout
 
-```
+```text
 userData/plugins/
   my-plugin/
     index.js          ← Layer 1 (required)
@@ -271,7 +271,7 @@ Zephyr ships a stable public CSS contract instead — two parts:
 
 **1. CSS variables.** Use these in inline styles to stay on theme:
 
-```
+```text
 --zephyr-bg-app           --zephyr-text-primary      --zephyr-accent
 --zephyr-bg-surface       --zephyr-text-secondary    --zephyr-accent-strong
 --zephyr-bg-elevated      --zephyr-text-muted        --zephyr-accent-hover
@@ -440,7 +440,7 @@ Ready-to-use examples are in `examples/plugins/` (Layer 1) and `examples/rendere
 
 To avoid conflicts between plugins, follow the `pluginId:action` convention:
 
-```
+```text
 open-steamdb:open      ✓  namespaced, clear
 copy-name:run          ✓  namespaced, clear
 open                   ✗  too generic

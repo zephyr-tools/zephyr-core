@@ -10,6 +10,6 @@
     "watch": "node esbuild.config.js --watch"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "esbuild": "0.25.0"
   }
 }

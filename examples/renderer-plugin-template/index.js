@@ -10,19 +10,37 @@ export default {
     // in the Settings dialog, so no register() call. A one-time console
     // warning on first save is expected and harmless.
 
-    zephyr.ipc.handle('my-plugin:list-notes', () => {
-      const notes = /** @type {Record<string, { text: string; updatedAt: number }> | null} */ (
-        zephyr.settings.get('notes')
-      );
-      return notes ?? {};
-    });
+    /**
+     * Validate that the payload is a non-null object. Plugin IPC handlers
+     * receive `unknown` from the renderer and should verify shapes before
+     * indexing into them — a malformed payload shouldn't crash the host.
+     * @param {unknown} payload
+     * @returns {Record<string, unknown>}
+     */
+    function asObject(payload) {
+      if (payload == null || typeof payload !== 'object') {
+        throw new Error('payload must be an object');
+      }
+      return /** @type {Record<string, unknown>} */ (payload);
+    }
+
+    function readNotes() {
+      const raw = zephyr.settings.get('notes');
+      if (raw == null || typeof raw !== 'object') return {};
+      return /** @type {Record<string, { text: string; updatedAt: number }>} */ ({
+        ...raw,
+      });
+    }
+
+    zephyr.ipc.handle('my-plugin:list-notes', () => readNotes());
 
     zephyr.ipc.handle('my-plugin:save-note', async (payload) => {
-      const { releaseId, text } = /** @type {{ releaseId: string; text: string }} */ (payload);
-      const current = /** @type {Record<string, { text: string; updatedAt: number }> | null} */ (
-        zephyr.settings.get('notes')
-      );
-      const notes = { ...(current ?? {}) };
+      const p = asObject(payload);
+      const releaseId = typeof p.releaseId === 'string' ? p.releaseId.trim() : '';
+      const text = typeof p.text === 'string' ? p.text : '';
+      if (!releaseId) throw new Error('save-note: releaseId must be a non-empty string');
+
+      const notes = readNotes();
       if (text.trim()) {
         notes[releaseId] = { text: text.trim(), updatedAt: Date.now() };
       } else {
@@ -32,13 +50,14 @@ export default {
     });
 
     zephyr.ipc.handle('my-plugin:delete-note', async (payload) => {
-      const { releaseId } = /** @type {{ releaseId: string }} */ (payload);
-      const current = /** @type {Record<string, { text: string; updatedAt: number }> | null} */ (
-        zephyr.settings.get('notes')
-      );
-      if (!current || !(releaseId in current)) return;
-      const { [releaseId]: _dropped, ...rest } = current;
-      await zephyr.settings.set('notes', rest);
+      const p = asObject(payload);
+      const releaseId = typeof p.releaseId === 'string' ? p.releaseId.trim() : '';
+      if (!releaseId) throw new Error('delete-note: releaseId must be a non-empty string');
+
+      const notes = readNotes();
+      if (!(releaseId in notes)) return;
+      delete notes[releaseId];
+      await zephyr.settings.set('notes', notes);
     });
 
     // Demonstrates the core hook: `onDownloadComplete` fires after the

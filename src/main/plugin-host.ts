@@ -55,7 +55,7 @@ type PluginModule = {
 
 type PluginSettingsStore = Record<string, unknown>;
 
-const VALID_PLUGIN_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const VALID_PLUGIN_ID = /^[a-z0-9][a-z0-9-]*$/;
 
 export class PluginHost {
   private readonly pluginsDir: string;
@@ -85,10 +85,10 @@ export class PluginHost {
       return;
     }
 
+    // Plugins are always directories (matches the ZIP distribution format).
+    // Loose files at the pluginsDir root are ignored.
     for (const entry of entries) {
       const fullPath = path.join(this.pluginsDir, entry);
-      let pluginId: string;
-      let entryFile: string;
 
       let stat: Awaited<ReturnType<typeof fs.stat>>;
       try {
@@ -96,16 +96,10 @@ export class PluginHost {
       } catch {
         continue;
       }
+      if (!stat.isDirectory()) continue;
 
-      if (stat.isDirectory()) {
-        pluginId = entry;
-        entryFile = path.join(fullPath, 'index.js');
-      } else if (entry.endsWith('.js')) {
-        pluginId = entry.slice(0, -3);
-        entryFile = fullPath;
-      } else {
-        continue;
-      }
+      const pluginId = entry;
+      const entryFile = path.join(fullPath, 'index.js');
 
       try {
         await fs.access(entryFile);

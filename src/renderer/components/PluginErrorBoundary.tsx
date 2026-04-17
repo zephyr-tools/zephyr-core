@@ -20,6 +20,15 @@ export class PluginErrorBoundary extends Component<Props, State> {
     console.error(`[Plugin:${this.props.pluginId}] render error:`, error, info.componentStack);
   }
 
+  // Reset the captured error when the boundary is reused for a different
+  // plugin (e.g. switching routes). Without this, a previously-crashed plugin
+  // would keep its error card even after navigating to a healthy one.
+  override componentDidUpdate(prevProps: Props): void {
+    if (this.state.error && prevProps.pluginId !== this.props.pluginId) {
+      this.setState({ error: null });
+    }
+  }
+
   override render(): ReactNode {
     if (this.state.error) {
       return (

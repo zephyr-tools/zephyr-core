@@ -34,22 +34,36 @@ function NotesSection({ release }) {
   const { notes, refresh } = useNotes();
   const existing = notes[release.id];
   const [draft, setDraft] = useState('');
-  const [status, setStatus] = useState(/** @type {'idle' | 'saving' | 'saved'} */ ('idle'));
+  const [status, setStatus] = useState(
+    /** @type {'idle' | 'saving' | 'saved' | 'error'} */ ('idle'),
+  );
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     setDraft(existing?.text ?? '');
     setStatus('idle');
+    setErrorMessage('');
   }, [release.id, existing?.text]);
 
   async function save() {
     setStatus('saving');
-    await window.api.invokePlugin('my-plugin:save-note', {
-      releaseId: release.id,
-      text: draft,
-    });
-    await refresh();
-    setStatus('saved');
-    setTimeout(() => setStatus('idle'), 1200);
+    setErrorMessage('');
+    try {
+      await window.api.invokePlugin('my-plugin:save-note', {
+        releaseId: release.id,
+        text: draft,
+      });
+      await refresh();
+      setStatus('saved');
+    } catch (err) {
+      console.error('[Notes] save failed:', err);
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+      setStatus('error');
+    } finally {
+      // Reset status after a beat so the button becomes interactive again
+      // regardless of success or failure.
+      setTimeout(() => setStatus('idle'), 1200);
+    }
   }
 
   const dirty = draft.trim() !== (existing?.text ?? '');
@@ -66,9 +80,11 @@ function NotesSection({ release }) {
       />
       <div className="zephyr-row" style={{ justifyContent: 'space-between' }}>
         <span className="zephyr-text-subtle" style={{ fontSize: 11 }}>
-          {existing
-            ? `Last updated ${new Date(existing.updatedAt).toLocaleString()}`
-            : 'No note saved yet for this release'}
+          {status === 'error'
+            ? `Save failed: ${errorMessage}`
+            : existing
+              ? `Last updated ${new Date(existing.updatedAt).toLocaleString()}`
+              : 'No note saved yet for this release'}
         </span>
         <button
           type="button"
@@ -76,7 +92,15 @@ function NotesSection({ release }) {
           disabled={!dirty || status === 'saving'}
           className={`zephyr-button ${dirty ? 'zephyr-button--primary' : ''}`}
         >
-          {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved!' : existing ? 'Update' : 'Save note'}
+          {status === 'saving'
+            ? 'Saving…'
+            : status === 'saved'
+              ? 'Saved!'
+              : status === 'error'
+                ? 'Retry'
+                : existing
+                  ? 'Update'
+                  : 'Save note'}
         </button>
       </div>
     </div>

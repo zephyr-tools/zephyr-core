@@ -183,7 +183,7 @@ Either way, a restart is needed for buttons, pages, or setting fields to appear.
 
 ## ZephyrAPI Quick Reference
 
-```
+```text
 zephyr.ui.addDetailButton({ label, action, icon? })   → simple IPC-triggered button in DetailPage top bar
 
 zephyr.ipc.handle(channel, handler)                    → register IPC handler (no 'plugin:' prefix)
@@ -200,7 +200,8 @@ zephyr.hooks.onAppReady(handler)                       → fires after all plugi
 ```
 
 **Renderer-only exports (in renderer.jsx, not index.js):**
-```
+
+```text
 export const detailSections = [{ id, title, component }]   → section below torrent results
 export const detailButtons  = [{ id, component }]          → rich React button in DetailPage top bar
 export const routes         = [{ id, navLabel, component }] → full-page route, nav button in header

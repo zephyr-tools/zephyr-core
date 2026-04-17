@@ -101,9 +101,14 @@ if (!existsSync(join(pluginDir, 'index.js'))) {
 
 // ── File selection ────────────────────────────────────────────────────────────
 // Directories and files excluded from the packaged output.
+//
+// Note: `src/` is intentionally NOT denied, because a plugin's runtime code
+// may import from `./src/...` directly (plugins that skip bundling). Build
+// artifacts like `renderer.js` sit at the plugin root regardless, so keeping
+// `src/` in the zip costs a few KB at worst when the template bundles its
+// renderer — but breaks plugins that ship source-as-runtime if excluded.
 const DENY_NAMES = new Set([
   'node_modules',
-  'src',
   'dist',
   '.git',
   '.gitignore',

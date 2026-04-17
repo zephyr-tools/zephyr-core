@@ -29,7 +29,7 @@ Zephyr is developed as a personal open-source project. It is distributed free of
 - **BitTorrent client** — Built-in download support via WebTorrent, with optional Real-Debrid integration
 - **Safety scanning** — Automatic Windows Defender scans on completed downloads, plus optional VirusTotal hash verification
 - **Download manager** — Pause, resume, and remove downloads with a slide-out drawer showing live progress
-- **Plugin system** — Extend Zephyr with third-party plugins. Install from a URL or a ZIP via **Settings → Plugins**, or drop the folder into `userData/plugins/` manually. See [PLUGINS.md](PLUGINS.md) for the developer guide.
+- **Plugin system** — Extend Zephyr with third-party plugins. Install from an HTTPS URL pointing to a `.zip` archive, from a local `.zip` via **Settings → Plugins**, or by extracting the folder into `userData/plugins/` manually. See [PLUGINS.md](PLUGINS.md) for the developer guide and troubleshooting.
 
 ## Prerequisites
 

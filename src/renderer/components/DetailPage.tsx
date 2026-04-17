@@ -228,8 +228,13 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
     [components.detailButtons, specs.detailButtons],
   );
   const [actionErrors, setActionErrors] = useState<Set<string>>(new Set());
+  const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
 
   async function handleActionButton(action: string): Promise<void> {
+    // Guard against double-clicks / re-entry: if a call for this channel is
+    // already in flight, ignore the new click.
+    if (pendingActions.has(action)) return;
+    setPendingActions((s) => new Set(s).add(action));
     try {
       await window.api.invokePlugin(action, release);
       setActionErrors((s) => {
@@ -240,6 +245,12 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
     } catch (err) {
       console.error(`[Plugin] invokePlugin(${action}) failed:`, err);
       setActionErrors((s) => new Set(s).add(action));
+    } finally {
+      setPendingActions((s) => {
+        const n = new Set(s);
+        n.delete(action);
+        return n;
+      });
     }
   }
 
@@ -278,8 +289,10 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
               key={btn.id}
               type="button"
               onClick={() => void handleActionButton(btn.action)}
+              disabled={pendingActions.has(btn.action)}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                'disabled:cursor-wait disabled:opacity-60',
                 actionErrors.has(btn.id)
                   ? 'bg-red-900/40 text-red-300 ring-1 ring-red-700/60'
                   : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100',
