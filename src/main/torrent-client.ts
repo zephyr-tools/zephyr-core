@@ -225,7 +225,13 @@ export class TorrentClient {
         torrent.on('done', () => {
           const j = this.jobs.get(torrent.infoHash);
           if (j) {
-            const completed = { ...j, status: 'seeding' as const, progress: 1 };
+            const revealPath = torrent.name ? path.join(j.savePath, torrent.name) : j.savePath;
+            const completed = {
+              ...j,
+              status: 'seeding' as const,
+              progress: 1,
+              revealPath,
+            };
             this.jobs.set(torrent.infoHash, completed);
             void this._save();
             if (this.onComplete) this.onComplete(completed);

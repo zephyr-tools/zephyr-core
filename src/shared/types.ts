@@ -151,6 +151,12 @@ export interface DownloadJob {
   rdRawStatus?: string;
   /** Non-fatal hint shown under a job (e.g. "No seeders yet — may be unavailable"). */
   rdMessage?: string;
+  /**
+   * Absolute path to reveal when the user clicks the folder icon on a complete
+   * job. Either a single file (highlighted in its folder) or a directory. Set
+   * by the origin on completion — renderer should treat as opaque.
+   */
+  revealPath?: string;
 }
 
 export interface GroupPrerequisites {

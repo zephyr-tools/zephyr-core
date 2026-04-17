@@ -148,7 +148,7 @@ function JobRow({ job }: { job: DownloadJob }): JSX.Element {
           {isSeeding && (
             <button
               type="button"
-              onClick={() => window.api.showItemInFolder(`${job.savePath}\\${job.name}`)}
+              onClick={() => window.api.showItemInFolder(job.revealPath ?? job.savePath)}
               className="rounded p-1 text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
               title="Show in folder"
             >

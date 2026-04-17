@@ -247,9 +247,11 @@ export class RealDebridService {
       let totalDownloaded = 0;
       let lastSpeedCheck = Date.now();
       let lastSpeedBytes = 0;
+      let firstFilePath: string | undefined;
 
       for (const file of files) {
         const filePath = path.join(savePath, file.filename);
+        if (!firstFilePath) firstFilePath = filePath;
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
 
         const res = await net.fetch(file.download);
@@ -284,6 +286,10 @@ export class RealDebridService {
         }
       }
 
+      // Reveal the single file if there's only one, otherwise the save folder
+      // (RD writes files flat into savePath — no parent folder to highlight).
+      const revealPath = files.length === 1 && firstFilePath ? firstFilePath : savePath;
+
       this.client.updateExternal(infoHash, {
         downloaded: totalDownloaded,
         progress: 1,
@@ -291,6 +297,7 @@ export class RealDebridService {
         downloadSpeed: 0,
         rdPhase: undefined,
         rdMessage: undefined,
+        revealPath,
       });
     } catch (err) {
       this.client.updateExternal(infoHash, {
