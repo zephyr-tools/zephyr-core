@@ -42,6 +42,8 @@ const api: BridgeApi = {
     return () => ipcRenderer.removeListener('torrent:progress', handler);
   },
 
+  getTrailerOrigin: (): Promise<string | null> => ipcRenderer.invoke('app:trailer-origin'),
+
   // Auto-update
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   checkForUpdate: (): Promise<void> => ipcRenderer.invoke('update:check'),
