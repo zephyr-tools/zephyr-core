@@ -159,7 +159,7 @@ async function fetchTrailerByYouTubeApi(
 
   const snippet = data.items?.[0]?.snippet;
   console.log(
-    `[trailer] YouTube API hit for "${title}": ${videoId} — "${snippet?.title}" by ${snippet?.channelTitle}`,
+    `[trailer] YouTube API hit for "${title}": ${videoId} - "${snippet?.title}" by ${snippet?.channelTitle}`,
   );
   return { type: 'youtube', url: videoId };
 }
@@ -286,7 +286,7 @@ export class GameDetailsService {
         if (trailer) return trailer;
       } catch (err) {
         if ((err as Error).message === 'youtube-api-disabled') {
-          console.log('[trailer] YouTube Data API not enabled — falling back to Gemini');
+          console.log('[trailer] YouTube Data API not enabled - falling back to Gemini');
           this.youtubeApiDisabled = true;
         } else {
           throw err;

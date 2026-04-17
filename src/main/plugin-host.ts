@@ -65,6 +65,7 @@ export class PluginHost {
     string /* pluginId */,
     Map<string /* key */, Array<(value: unknown) => void>>
   >();
+  private unregisteredSetWarnings = new Set<string>(); // `${pluginId}:${key}` — one warning per pair
   private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
   private loadedPlugins: LoadedPlugin[] = [];
@@ -387,7 +388,7 @@ export class PluginHost {
       if (!plugin || typeof plugin.setup !== 'function') {
         const msg = `Plugin ${pluginId}: no default export with setup()`;
         if (opts.throwOnError) throw new Error(msg);
-        console.warn(`[PluginHost] ${msg} — skipping`);
+        console.warn(`[PluginHost] ${msg} - skipping`);
         return;
       }
 
@@ -441,7 +442,7 @@ export class PluginHost {
           try {
             ipcMain.handle(full, async (_event, payload: unknown) => handler(payload));
           } catch {
-            console.warn(`[PluginHost] Channel ${full} already registered — skipping duplicate`);
+            console.warn(`[PluginHost] Channel ${full} already registered - skipping duplicate`);
           }
         },
       },
@@ -465,9 +466,13 @@ export class PluginHost {
         },
         async set(key, value) {
           if (!host.ui.settings.some((s) => s.pluginId === pluginId && s.key === key)) {
-            console.warn(
-              `[Plugin:${pluginId}] settings.set("${key}") — key not registered via settings.register(); value will be persisted but won't appear in the settings UI`,
-            );
+            const warnKey = `${pluginId}:${key}`;
+            if (!host.unregisteredSetWarnings.has(warnKey)) {
+              host.unregisteredSetWarnings.add(warnKey);
+              console.warn(
+                `[Plugin:${pluginId}] settings.set("${key}") - key not registered via settings.register(); value will be persisted but won't appear in the settings UI. (This warning fires once per key.)`,
+              );
+            }
           }
           await host._applySetting(pluginId, key, value);
         },

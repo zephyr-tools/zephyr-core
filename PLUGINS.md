@@ -249,11 +249,13 @@ For rich UI — React components embedded in the detail page or full standalone 
 
 ### What renderer plugins can contribute
 
-| Export | Renders where |
-|---|---|
-| `detailSections` | Below torrent results on the DetailPage |
-| `detailButtons` | In the DetailPage top bar (rich React components instead of plain IPC buttons) |
-| `routes` | Full-page views with a nav button in the app header |
+| Export | Renders where | Props |
+|---|---|---|
+| `detailSections` | Below torrent results on the DetailPage | `{ release: Release }` — always present |
+| `detailButtons` | In the DetailPage top bar (rich React components instead of plain IPC buttons) | `{ release: Release }` — always present |
+| `routes` | Full-page views with a nav button in the app header | `{ release?: Release }` — the most recently-viewed release this session, or `undefined` if the user hasn't opened one yet |
+
+The `release` prop on route components is sticky: opening a release and then navigating back to the grid and up to a plugin route still surfaces that release. It's a convenience for plugins that want to link "related" content to whatever the user was last looking at — route components that don't need a release context can simply ignore the prop.
 
 ### React sharing
 
@@ -423,14 +425,14 @@ Relaunches the app with the same arguments, so install/remove effects flow throu
 
 ## Example Plugins
 
-Ready-to-use examples are in `examples/plugins/`. Copy any folder into your `userData/plugins/` directory.
+Ready-to-use examples are in `examples/plugins/` (Layer 1) and `examples/renderer-plugin-template/` (Layer 1+2). Package any of them with `npm run package:plugin -- <dir>` and install the resulting ZIP via Settings → Plugins.
 
 | Plugin | Layer | What it does |
 |---|---|---|
 | `open-steamdb` | 1 | Adds "SteamDB" button → opens steamdb.info search for the game title |
 | `open-pcgamingwiki` | 1 | Adds "PCGamingWiki" button → opens the PCGamingWiki search |
 | `copy-release-name` | 1 | Adds "Copy Name" button → copies the scene release name to clipboard |
-| `renderer-plugin-template` | 1+2 | Starter template with esbuild config, React shims, example section and page |
+| `renderer-plugin-template` | 1+2 | **Notes reference implementation.** Exercises the full renderer API surface: a per-release notes section below torrent results (detail section) and a "My Notes" page listing every saved note (route). Data round-trips through IPC to main-process storage via `zephyr.settings.set/get`. The Layer-1 side also demonstrates `onDownloadComplete` with the resolved scan status. Good starting point for a non-trivial plugin — clone the folder and strip what you don't need. |
 
 ---
 
