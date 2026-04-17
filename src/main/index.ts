@@ -35,7 +35,6 @@ let gameDetails: GameDetailsService | null = null;
 const torrentClient = new TorrentClient(() => mainWindow);
 
 torrentClient.setOnComplete((job) => {
-  pluginHost.notifyDownloadComplete(job);
   const vtKey = settings.snapshot().virusTotalApiKey;
   torrentClient.updateExternal(job.infoHash, { scanStatus: 'scanning' });
   scanDownload(job.savePath, job.name, vtKey)
@@ -44,9 +43,21 @@ torrentClient.setOnComplete((job) => {
         scanStatus: result.status,
         scanInfo: result.info,
       });
+      // Fire plugin hooks after the scan resolves so handlers see the
+      // final scanStatus/scanInfo on the job.
+      pluginHost.notifyDownloadComplete({
+        ...job,
+        scanStatus: result.status,
+        scanInfo: result.info,
+      });
     })
     .catch(() => {
       torrentClient.updateExternal(job.infoHash, {
+        scanStatus: 'error',
+        scanInfo: 'Scan failed unexpectedly',
+      });
+      pluginHost.notifyDownloadComplete({
+        ...job,
         scanStatus: 'error',
         scanInfo: 'Scan failed unexpectedly',
       });
@@ -70,7 +81,8 @@ async function ensureServices(): Promise<void> {
 }
 
 function createWindow(): void {
-  const iconExt = process.platform === 'darwin' ? 'icns' : process.platform === 'win32' ? 'ico' : 'png';
+  const iconExt =
+    process.platform === 'darwin' ? 'icns' : process.platform === 'win32' ? 'ico' : 'png';
   const iconPath = path.join(__dirname, `../../build/icon.${iconExt}`);
 
   mainWindow = new BrowserWindow({
@@ -231,6 +243,11 @@ function registerIpc(): void {
   ipcMain.handle('plugins:get-renderer-paths', () => pluginHost.getRendererPaths());
   ipcMain.handle('plugins:list', () => pluginHost.getLoadedPlugins());
   ipcMain.handle('plugins:install', async (_event, url: string) => pluginHost.installFromUrl(url));
+  ipcMain.handle(
+    'plugins:set-setting',
+    async (_event, pluginId: string, key: string, value: unknown) =>
+      pluginHost.setPluginSetting(pluginId, key, value),
+  );
 }
 
 app.whenReady().then(async () => {

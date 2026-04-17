@@ -134,17 +134,44 @@ zephyr.ipc.handle('open', handler)             // → 'plugin:open'
 
 | Method | Description |
 |---|---|
-| `register(spec)` | Declare a settings field (appears in Zephyr's Settings panel) |
+| `register(spec)` | Declare a settings field (appears in the Settings → Plugins tab) |
 | `get(key)` | Read a persisted value synchronously (returns `null` if not set) |
 | `set(key, value)` | Persist a value to `userData/plugins/<pluginId>/settings.json` |
+| `onChange(key, handler)` | Subscribe to changes, including edits made from the Settings UI |
 
-> **Note:** Call `register()` before `set()`. Zephyr will persist the value either way, but unregistered keys won't appear in the Settings UI and a console warning is emitted.
+**Supported `type` values:** `'text'`, `'password'`, `'toggle'`, `'number'`, `'select'`.
+
+| Type | Extra fields | Notes |
+|---|---|---|
+| `text` / `password` | `hint?` | Committed on blur |
+| `toggle` | `hint?` | Committed immediately |
+| `number` | `min?`, `max?`, `step?`, `hint?` | Empty input persists `null`; committed on blur |
+| `select` | `options: [{ label, value }]`, `hint?` | Committed immediately |
+
+> **Note:** Call `register()` before `set()`. Zephyr will persist the value either way, but unregistered keys won't appear in the Settings UI and a console warning is emitted. The UI-driven write path (`plugins:set-setting`) rejects unregistered keys outright.
 
 ```js
-zephyr.settings.register({ key: 'apiKey', label: 'My Service API Key', type: 'password' });
+zephyr.settings.register({ key: 'apiKey', label: 'Service API Key', type: 'password' });
+zephyr.settings.register({
+  key: 'quality',
+  label: 'Preferred quality',
+  type: 'select',
+  options: [
+    { label: 'Low',    value: 'low' },
+    { label: 'Medium', value: 'med' },
+    { label: 'High',   value: 'high' },
+  ],
+});
+zephyr.settings.register({ key: 'maxResults', label: 'Max results', type: 'number', min: 1, max: 100, step: 1 });
 
 const key = zephyr.settings.get('apiKey');   // null until set
 await zephyr.settings.set('apiKey', 'abc123');
+
+// React to user edits from the Settings dialog:
+zephyr.settings.onChange('apiKey', (newValue) => {
+  console.log('apiKey updated:', newValue);
+  // refresh in-memory clients, re-authenticate, etc.
+});
 ```
 
 ### `zephyr.hooks`
@@ -154,11 +181,14 @@ await zephyr.settings.set('apiKey', 'abc123');
 | `onAppReady(handler)` | Called once after all plugins have loaded |
 | `onDownloadComplete(handler)` | Called when a download transitions to `seeding` (complete) state |
 
-`onDownloadComplete` receives a fully-typed `DownloadJob` — see `zephyr-plugin.d.ts` for all fields:
+`onDownloadComplete` fires **after** the post-download virus scan has resolved,
+so `job.scanStatus` is the final result (`clean` | `threat` | `error`) and
+`job.scanInfo` carries any details. See `zephyr-plugin.d.ts` for all fields:
 
 ```js
 zephyr.hooks.onDownloadComplete((job) => {
   // job.name, job.savePath, job.infoHash, job.status, job.origin, job.scanStatus, ...
+  if (job.scanStatus === 'threat') return;
   console.log(`Download complete: ${job.name} at ${job.savePath}`);
 });
 ```
@@ -183,6 +213,39 @@ Renderer plugins do **not** bundle their own React. Instead, Zephyr exposes Reac
 
 The `examples/renderer-plugin-template/` directory contains ready-to-use shims and an esbuild config. Copy it as your starting point.
 
+### Styling — the Plugin UI Kit
+
+**Tailwind classes from the host app do NOT work in plugin bundles.** Tailwind v4 scans source files at Zephyr's build time, so any class a plugin uses that isn't already used by core is absent from the shipped CSS.
+
+Zephyr ships a stable public CSS contract instead — two parts:
+
+**1. CSS variables.** Use these in inline styles to stay on theme:
+
+```
+--zephyr-bg-app           --zephyr-text-primary      --zephyr-accent
+--zephyr-bg-surface       --zephyr-text-secondary    --zephyr-accent-strong
+--zephyr-bg-elevated      --zephyr-text-muted        --zephyr-accent-hover
+--zephyr-bg-hover         --zephyr-text-subtle       --zephyr-on-accent
+--zephyr-border           --zephyr-danger            --zephyr-radius
+--zephyr-border-strong    --zephyr-success           --zephyr-radius-sm
+                          --zephyr-warning           --zephyr-radius-lg
+```
+
+**2. Utility classes.** Drop these into `className` — they are guaranteed to stay available across Zephyr versions:
+
+| Class | Purpose |
+|---|---|
+| `zephyr-card`, `zephyr-card--muted` | Panel containers |
+| `zephyr-button`, `zephyr-button--primary`, `zephyr-button--ghost`, `zephyr-button--danger` | Buttons |
+| `zephyr-input`, `zephyr-select`, `zephyr-textarea` | Form fields |
+| `zephyr-label` | Uppercase small-caps label above a field |
+| `zephyr-pill` | Inline chip/badge |
+| `zephyr-text-{primary,secondary,muted,subtle,accent,danger,success}` | Text color |
+| `zephyr-stack`, `zephyr-stack--md` | Vertical flex with gap (8px / 16px) |
+| `zephyr-row` | Horizontal flex with 8px gap |
+
+Anything outside this list is not part of the plugin contract and may change without notice.
+
 ### Example `renderer.jsx`
 
 ```jsx
@@ -205,8 +268,23 @@ export const routes = [
 ];
 
 function NotesSection({ release }) {
-  return <div className="text-zinc-300 p-4">{release.title}</div>;
+  return (
+    <div className="zephyr-card zephyr-stack">
+      <span className="zephyr-label">Notes</span>
+      <p className="zephyr-text-muted">{release.title}</p>
+      <button type="button" className="zephyr-button zephyr-button--primary">
+        Save
+      </button>
+    </div>
+  );
 }
+```
+
+### Calling plugin IPC handlers from renderer code
+
+```jsx
+// Pass the bare channel name — the `plugin:` prefix is applied automatically.
+await window.api.invokePlugin('my-plugin:save-note', { id: release.id, note });
 ```
 
 ### Building
@@ -233,6 +311,11 @@ Each plugin render point is wrapped in an error boundary. A crashing renderer pl
 
 ## TypeScript / JSDoc Support
 
+The same `zephyr-plugin.d.ts` covers both layers:
+
+- **Layer 1** — `ZephyrPlugin`, `ZephyrAPI`, `PluginButtonSpec`, `PluginSettingSpec`, `DownloadJob`, `Release`
+- **Layer 2** — `PluginDetailSection`, `PluginDetailButton`, `PluginRoute`, `PluginPageProps`, `RendererPluginExports`, `ZephyrWindowApi`
+
 For IntelliSense in VS Code without a build step (Layer 1 only):
 
 1. Copy `examples/plugins/zephyr-plugin.d.ts` into your plugin directory.
@@ -245,9 +328,9 @@ For IntelliSense in VS Code without a build step (Layer 1 only):
 export default { ... }
 ```
 
-You get autocomplete on all `zephyr.*` methods and a fully-typed `DownloadJob` in `onDownloadComplete`.
+You get autocomplete on all `zephyr.*` methods, a fully-typed `Release` for button actions, and a fully-typed `DownloadJob` in `onDownloadComplete`.
 
-> The `DownloadJob` type in `zephyr-plugin.d.ts` is auto-generated from Zephyr's source — run `npm run generate:plugin-types` to refresh it after a Zephyr update.
+> The `Release`, `DownloadJob`, and related types in `zephyr-plugin.d.ts` are auto-generated from Zephyr's source — run `npm run generate:plugin-types` to refresh them after a Zephyr update (CI runs this automatically before typecheck).
 
 ---
 
@@ -260,7 +343,13 @@ Zephyr can install a plugin directly from a `.js` URL:
 await window.api.installPlugin('https://example.com/my-plugin.js');
 ```
 
-The file is downloaded to `userData/plugins/my-plugin/index.js` and loaded immediately — no restart needed.
+The file is downloaded to `userData/plugins/<pluginId>/index.js` and loaded
+into the main process. **A restart is required** for the new button, page,
+or settings field to appear in the UI. The plugin ID is derived from the URL
+basename and must match `^[a-z0-9][a-z0-9-]*$` — other filenames are rejected.
+
+If the plugin's `setup()` throws, the written file is rolled back and the
+error is surfaced to the caller.
 
 > Remote installation only supports single-file Layer 1 plugins. Renderer plugins (Layer 2) must be installed manually.
 

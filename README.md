@@ -138,6 +138,7 @@ src/
 | `npm run typecheck` | Strict `tsc --noEmit` on both Node and Web configs |
 | `npm run lint` | BiomeJS linting |
 | `npm run format` | BiomeJS auto-format |
+| `npm run generate:plugin-types` | Sync plugin-facing types (`Release`, `DownloadJob`, …) into `examples/plugins/zephyr-plugin.d.ts` from `src/shared/types.ts`. Also runs in CI before typecheck. |
 | `npm run package` | Build + package (directory output) |
 | `npm run make` | Build + create distributable installer |
 

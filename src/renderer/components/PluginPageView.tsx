@@ -1,8 +1,8 @@
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { type JSX, Suspense, lazy, useMemo } from 'react';
-import { PluginErrorBoundary } from './PluginErrorBoundary';
+import { type JSX, lazy, Suspense, useMemo } from 'react';
 import { usePluginComponents } from '@/contexts/PluginContext';
 import { useUiStore } from '@/lib/store';
+import { PluginErrorBoundary } from './PluginErrorBoundary';
 
 function PluginPageView(): JSX.Element {
   const pluginPage = useUiStore((s) => s.pluginPage);

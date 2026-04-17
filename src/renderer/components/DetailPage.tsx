@@ -20,11 +20,11 @@ import {
 } from 'lucide-react';
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { usePluginContext } from '@/contexts/PluginContext';
-import type { DetailButton } from '@/types/plugin';
-import { PluginErrorBoundary } from './PluginErrorBoundary';
 import { cn } from '@/lib/cn';
 import { formatRelativeTime, formatSize } from '@/lib/format';
+import type { DetailButton } from '@/types/plugin';
 import { ArtworkImage } from './ArtworkImage';
+import { PluginErrorBoundary } from './PluginErrorBoundary';
 
 interface DetailPageProps {
   release: Release;
@@ -232,7 +232,11 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
   async function handleActionButton(action: string): Promise<void> {
     try {
       await window.api.invokePlugin(action, release);
-      setActionErrors((s) => { const n = new Set(s); n.delete(action); return n; });
+      setActionErrors((s) => {
+        const n = new Set(s);
+        n.delete(action);
+        return n;
+      });
     } catch (err) {
       console.error(`[Plugin] invokePlugin(${action}) failed:`, err);
       setActionErrors((s) => new Set(s).add(action));

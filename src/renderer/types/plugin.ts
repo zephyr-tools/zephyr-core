@@ -1,5 +1,5 @@
-import type { ComponentType } from 'react';
 import type { Release } from '@shared/types';
+import type { ComponentType } from 'react';
 
 export interface PluginPageProps {
   release?: Release;

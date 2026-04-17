@@ -76,8 +76,11 @@ shell:open-external     shell:show-item-in-folder
 torrent:search          torrent:add             torrent:list
 torrent:pause           torrent:resume          torrent:remove
 plugins:get-ui          plugins:get-renderer-paths
+plugins:list            plugins:install         plugins:set-setting
 plugin:<channel>        (dynamic — registered by each plugin via zephyr.ipc.handle())
 ```
+
+`window.api.invokePlugin(channel, payload)` in preload always prefixes `plugin:` onto the supplied channel — callers pass the bare `pluginId:action` name. This guarantees renderer code (including Layer-2 plugin bundles) cannot reach any non-plugin IPC channel through that bridge method.
 
 Push event (main → renderer): `torrent:progress` — broadcast every 1s with all `DownloadJob[]`.
 
@@ -94,7 +97,7 @@ Push event (main → renderer): `torrent:progress` — broadcast every 1s with a
 - **Real-Debrid** — addMagnet → selectFiles → poll info → unrestrict links → HTTP stream to disk
 - **Persistence** — `userData/downloads.json` stores job state across restarts
 - **Progress** — `TorrentClient._broadcast()` pushes `DownloadJob[]` to renderer every 1s
-- **onComplete callback** — triggers virus scan when any job transitions to `seeding`
+- **onComplete callback** — triggers virus scan when any job transitions to `seeding`, then fires `PluginHost.notifyDownloadComplete(job)` with the resolved `scanStatus`/`scanInfo` so plugin hooks see the final scan result
 
 ## Virus Scanning
 1. **Windows Defender** — `MpCmdRun.exe -Scan -ScanType 3 -File <path> -DisableRemediation` (always runs, no config)
@@ -145,6 +148,8 @@ Strict mode + `noUncheckedIndexedAccess` + `verbatimModuleSyntax`. Array/object 
 ## Styling
 Tailwind v4 (CSS-first, no `tailwind.config.js`). Dark zinc palette (`zinc-950/900/800`), `brand-*` for accents (violet). Use `cn()` from `@/lib/cn` for conditional classes.
 
+**Plugin UI Kit** — `src/renderer/styles.css` exposes a stable `--zephyr-*` CSS-variable palette and a `.zephyr-*` utility-class set (card/button/input/label/pill/text/stack). These are the PUBLIC CONTRACT for third-party plugin code — plugin bundles can't use Tailwind because classes are scanned at Zephyr's build time. Core code should NOT use `.zephyr-*` classes; it uses Tailwind directly. The `--zephyr-*` variables reference Tailwind theme tokens (`--color-zinc-*`, `--color-brand-*`), so rebranding core flows through to plugins automatically. Renaming or removing an existing `--zephyr-*` token or `.zephyr-*` class is a breaking change.
+
 ## Linting & Formatting
 BiomeJS v2 (replaced ESLint + Prettier). Config in `biome.json`.
 - 2-space indent, 100-char lines, single quotes, trailing commas, always-semicolons
@@ -175,11 +180,13 @@ Two-layer architecture — plugins can be main-process-only or include a rendere
 
 **Layer 1 — `index.js` (main process, no build step)**
 - Loaded by `PluginHost` from `userData/plugins/<pluginId>/index.js`
+- Plugin IDs must match `^[a-z0-9][a-z0-9-]*$` (enforced for `installFromUrl`)
 - Calls `setup(zephyr)` with `ZephyrAPI` — registers buttons, IPC handlers, settings, hooks
-- `zephyr.ui.addDetailButton({ label, action })` — adds a simple IPC-triggered button to DetailPage
-- `zephyr.ipc.handle(channel, handler)` — `plugin:` prefix added automatically; channel must be namespaced `pluginId:action`
-- `zephyr.settings.register/get/set` — settings appear in Zephyr Settings UI; `set()` warns if key not registered first
-- `zephyr.hooks.onDownloadComplete(job: DownloadJob)` / `onAppReady()`
+- `zephyr.ui.addDetailButton({ label, action })` — adds a simple IPC-triggered button to DetailPage. `action` is the bare channel name — the `plugin:` prefix is applied by preload on invocation.
+- `zephyr.ipc.handle(channel, handler)` — `plugin:` prefix added automatically on registration; channel must be namespaced `pluginId:action`
+- `zephyr.settings.register/get/set/onChange` — settings appear in the Settings dialog's "Plugins" tab. Supported types: `text | password | toggle | number | select` (with `options`, `min`, `max`, `step`, `hint`). `set()` warns if the key is unregistered but still persists; the UI write path (`plugins:set-setting`) rejects unregistered keys. `onChange(key, handler)` fires after either write path persists, letting plugins react to user edits from the UI.
+- All setting writes flow through a single `PluginHost._applySetting` so cache + disk + listeners stay in sync.
+- `zephyr.hooks.onDownloadComplete(job: DownloadJob)` fires **after** the post-download virus scan resolves, so `job.scanStatus`/`scanInfo` are final. `onAppReady()` fires once after all plugins load.
 
 **Layer 2 — `renderer.js` (renderer process, requires esbuild build)**
 - Sits alongside `index.js` in the plugin directory
@@ -189,12 +196,14 @@ Two-layer architecture — plugins can be main-process-only or include a rendere
 - Loaded dynamically in `PluginContext` via `import(file:// url)` with 5s per-plugin timeout
 - Duplicate ids across plugins: first registration wins, console warning emitted
 - Each render point wrapped in `PluginErrorBoundary` — plugin crash is isolated, rest of app unaffected
+- Styling: plugins cannot use Tailwind classes — use the `.zephyr-*` utility classes and `--zephyr-*` CSS variables defined in `src/renderer/styles.css` (see "Styling" section above).
 
 **Plugin type definitions** — `examples/plugins/zephyr-plugin.d.ts`
-- `DownloadJob` and related types are auto-generated from `src/shared/types.ts` via `npm run generate:plugin-types`
-- Run `generate:plugin-types` is also executed as a CI step in the release pipeline before typecheck
+- Layer-1 types hand-authored: `ZephyrPlugin`, `ZephyrAPI`, `PluginButtonSpec`, `PluginSettingSpec`
+- Layer-2 types hand-authored: `PluginDetailSection`, `PluginDetailButton`, `PluginRoute`, `PluginPageProps`, `RendererPluginExports`, `ZephyrWindowApi`
+- `Release` + `DownloadJob` (and dependent types) are auto-generated from `src/shared/types.ts` via `npm run generate:plugin-types`. The generator runs as a CI step in the release pipeline before typecheck.
 
-**Plugin template** — `examples/renderer-plugin-template/` contains esbuild config + shims + example renderer.jsx
+**Plugin template** — `examples/renderer-plugin-template/` contains esbuild config + shims + example `renderer.jsx` using the Plugin UI Kit.
 
 ## State
 - **Zustand** (`useUiStore`) — transient UI: search query, category, page, selectedRelease, `pluginPage` (active plugin route id or null)

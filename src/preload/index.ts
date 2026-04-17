@@ -67,10 +67,20 @@ const api: BridgeApi = {
   getPluginUi: (): Promise<PluginUi> => ipcRenderer.invoke('plugins:get-ui'),
   getPluginRendererPaths: (): Promise<PluginRendererPath[]> =>
     ipcRenderer.invoke('plugins:get-renderer-paths'),
-  invokePlugin: (channel: string, payload: unknown): Promise<unknown> =>
-    ipcRenderer.invoke(channel, payload),
+  invokePlugin: (channel: string, payload: unknown): Promise<unknown> => {
+    // Callers pass the bare channel name (`pluginId:action`); the `plugin:`
+    // prefix is applied here so renderer code — including Layer-2 plugins —
+    // cannot reach any non-plugin IPC channel through this function.
+    if (typeof channel !== 'string' || channel.length === 0) {
+      return Promise.reject(new Error('invokePlugin: channel must be a non-empty string'));
+    }
+    const bare = channel.startsWith('plugin:') ? channel.slice('plugin:'.length) : channel;
+    return ipcRenderer.invoke(`plugin:${bare}`, payload);
+  },
   installPlugin: (url: string): Promise<string> => ipcRenderer.invoke('plugins:install', url),
   listPlugins: (): Promise<LoadedPlugin[]> => ipcRenderer.invoke('plugins:list'),
+  setPluginSetting: (pluginId: string, key: string, value: unknown): Promise<void> =>
+    ipcRenderer.invoke('plugins:set-setting', pluginId, key, value),
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -1,5 +1,10 @@
 import { useState } from 'react';
 
+// Plugin UI is styled via the Zephyr Plugin UI Kit (see PLUGINS.md):
+//   - CSS variables under `--zephyr-*` for use in inline styles
+//   - Class names under `.zephyr-*` for common primitives
+// Tailwind classes from the host app are NOT available in plugin bundles.
+
 // ── Detail section example ────────────────────────────────────────────────────
 // Renders below torrent results on the game detail page.
 // Receives the full Release object as a prop.
@@ -8,43 +13,27 @@ function NotesSection({ release }) {
   const [note, setNote] = useState('');
   const [saved, setSaved] = useState(false);
 
-  function save() {
-    window.api.invokePlugin('my-plugin:save-note', { id: release.id, note });
+  async function save() {
+    await window.api.invokePlugin('my-plugin:save-note', { id: release.id, note });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="zephyr-stack">
       <textarea
+        className="zephyr-textarea"
         value={note}
         onChange={(e) => setNote(e.target.value)}
         placeholder={`Notes for ${release.title}…`}
         rows={3}
-        style={{
-          background: '#18181b',
-          border: '1px solid #3f3f46',
-          borderRadius: 8,
-          color: '#e4e4e7',
-          fontSize: 13,
-          padding: '8px 10px',
-          resize: 'vertical',
-          width: '100%',
-        }}
+        style={{ resize: 'vertical' }}
       />
       <button
+        type="button"
         onClick={save}
-        style={{
-          alignSelf: 'flex-start',
-          background: saved ? '#16a34a' : '#7c3aed',
-          border: 'none',
-          borderRadius: 8,
-          color: '#fff',
-          cursor: 'pointer',
-          fontSize: 12,
-          fontWeight: 600,
-          padding: '6px 14px',
-        }}
+        className={`zephyr-button ${saved ? '' : 'zephyr-button--primary'}`}
+        style={saved ? { background: 'var(--zephyr-success)', color: '#fff' } : undefined}
       >
         {saved ? 'Saved!' : 'Save note'}
       </button>
@@ -57,14 +46,16 @@ function NotesSection({ release }) {
 
 function MyPluginPage({ release }) {
   return (
-    <div style={{ padding: 24, color: '#e4e4e7' }}>
-      <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>My Plugin</h2>
+    <div className="zephyr-stack--md" style={{ padding: 24 }}>
+      <h2 className="zephyr-text-primary" style={{ fontSize: 20, fontWeight: 700 }}>
+        My Plugin
+      </h2>
       {release ? (
-        <p style={{ color: '#a1a1aa', fontSize: 14 }}>
-          Last viewed: <strong style={{ color: '#e4e4e7' }}>{release.title}</strong>
+        <p className="zephyr-text-muted">
+          Last viewed: <strong className="zephyr-text-primary">{release.title}</strong>
         </p>
       ) : (
-        <p style={{ color: '#71717a', fontSize: 14 }}>No release selected.</p>
+        <p className="zephyr-text-subtle">No release selected.</p>
       )}
     </div>
   );
@@ -74,6 +65,7 @@ function MyPluginPage({ release }) {
 
 export const detailSections = [
   {
+    id: 'my-plugin:notes',
     title: 'My Notes',
     component: NotesSection,
   },
@@ -81,7 +73,7 @@ export const detailSections = [
 
 export const routes = [
   {
-    id: 'my-plugin',
+    id: 'my-plugin:home',
     navLabel: 'My Plugin',
     component: () => Promise.resolve({ default: MyPluginPage }),
   },

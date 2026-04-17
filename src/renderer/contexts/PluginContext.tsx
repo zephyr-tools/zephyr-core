@@ -11,8 +11,6 @@ import {
 
 const EMPTY_SPECS: PluginUi = {
   detailButtons: [],
-  detailSections: [],
-  cardMenuItems: [],
   settings: [],
 };
 

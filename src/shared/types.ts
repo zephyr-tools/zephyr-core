@@ -182,32 +182,40 @@ export interface UpdateInfo {
 
 export interface PluginButtonSpec {
   label: string;
-  /** Full IPC channel with `plugin:` prefix — set by PluginHost, not the plugin author. */
+  /**
+   * Bare IPC channel name as registered by the plugin via `zephyr.ipc.handle`.
+   * The `plugin:` prefix is applied transparently when the renderer invokes.
+   */
   action: string;
   icon?: string;
 }
 
-export interface PluginSectionSpec {
-  title: string;
-  action: string;
-}
+export type PluginSettingType = 'text' | 'password' | 'toggle' | 'number' | 'select';
 
-export interface PluginCardMenuItemSpec {
+export interface PluginSettingOption {
   label: string;
-  action: string;
+  value: string | number | boolean;
 }
 
 export interface PluginSettingSpec {
   key: string;
   label: string;
-  type: 'text' | 'password' | 'toggle';
+  type: PluginSettingType;
   pluginId: string;
+  /** Current persisted value, or null when unset. */
+  value: unknown;
+  /** Options for `type: 'select'`. */
+  options?: PluginSettingOption[];
+  /** Numeric bounds + step, for `type: 'number'`. */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Optional helper text rendered under the field. */
+  hint?: string;
 }
 
 export interface PluginUi {
   detailButtons: PluginButtonSpec[];
-  detailSections: PluginSectionSpec[];
-  cardMenuItems: PluginCardMenuItemSpec[];
   settings: PluginSettingSpec[];
 }
 
@@ -251,9 +259,15 @@ export interface BridgeApi {
   // Plugin system
   getPluginUi(): Promise<PluginUi>;
   getPluginRendererPaths(): Promise<PluginRendererPath[]>;
+  /**
+   * Invoke a plugin-registered IPC handler. Pass the bare channel name
+   * (`pluginId:action`) — the `plugin:` prefix is applied in preload so
+   * this method can never reach a non-plugin channel.
+   */
   invokePlugin(channel: string, payload: unknown): Promise<unknown>;
   installPlugin(url: string): Promise<string>;
   listPlugins(): Promise<LoadedPlugin[]>;
+  setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>;
 }
 
 export interface PluginRendererPath {

@@ -25,6 +25,6 @@ export const useUiStore = create<UiState>((set) => ({
   setCategory: (category) => set({ category, page: 1 }),
   setPage: (page) => set({ page }),
   setSelectedRelease: (selectedRelease) => set({ selectedRelease }),
-  setPluginPage: (pluginPage) => set({ pluginPage, selectedRelease: null }),
+  setPluginPage: (pluginPage) => set({ pluginPage }),
   reset: () => set({ search: '', category: 'GAMES', page: 1 }),
 }));

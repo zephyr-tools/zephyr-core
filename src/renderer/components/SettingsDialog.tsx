@@ -1,10 +1,11 @@
-import type { AppSettings } from '@shared/types';
+import type { AppSettings, PluginSettingSpec } from '@shared/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Info, Key, RefreshCw, Shield, Trash2, X } from 'lucide-react';
-import { type JSX, useEffect, useState } from 'react';
+import { Cloud, Info, Key, Puzzle, RefreshCw, Shield, Trash2, X } from 'lucide-react';
+import { type JSX, useEffect, useMemo, useState } from 'react';
+import { usePluginContext } from '@/contexts/PluginContext';
 import { cn } from '@/lib/cn';
 
-type Tab = 'general' | 'application';
+type Tab = 'general' | 'application' | 'plugins';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -50,6 +51,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): JSX.Elem
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
 
+  const { specs } = usePluginContext();
+  const hasPluginSettings = specs.settings.length > 0;
+
+  // If plugins unregister their last setting while the dialog is open, pull
+  // the user off the now-empty Plugins tab instead of stranding them there.
+  useEffect(() => {
+    if (tab === 'plugins' && !hasPluginSettings) setTab('general');
+  }, [tab, hasPluginSettings]);
+
   if (!open) return null;
 
   return (
@@ -72,6 +82,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): JSX.Elem
               <TabButton active={tab === 'application'} onClick={() => setTab('application')}>
                 Application
               </TabButton>
+              {hasPluginSettings && (
+                <TabButton active={tab === 'plugins'} onClick={() => setTab('plugins')}>
+                  Plugins
+                </TabButton>
+              )}
             </nav>
           </div>
           <button
@@ -176,6 +191,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): JSX.Elem
                 </button>
               </div>
             </form>
+          ) : tab === 'plugins' ? (
+            <PluginsTab specs={specs.settings} />
           ) : (
             <div className="flex flex-col gap-4">
               <Field icon={<Info className="h-4 w-4 text-zinc-500" />} label="Current version">
@@ -270,6 +287,168 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
+  const qc = useQueryClient();
+  const grouped = useMemo(() => {
+    const map = new Map<string, PluginSettingSpec[]>();
+    for (const s of specs) {
+      const list = map.get(s.pluginId) ?? [];
+      list.push(s);
+      map.set(s.pluginId, list);
+    }
+    return [...map.entries()];
+  }, [specs]);
+
+  async function save(pluginId: string, key: string, value: unknown): Promise<void> {
+    await window.api.setPluginSetting(pluginId, key, value);
+    qc.invalidateQueries({ queryKey: ['plugin-ui'] });
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs leading-relaxed text-zinc-400">
+        <Puzzle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500" />
+        <span>
+          Settings exposed by installed plugins. Changes persist to each plugin's own settings store
+          and are visible to the plugin on the next read.
+        </span>
+      </div>
+      {grouped.map(([pluginId, fields]) => (
+        <section key={pluginId} className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            {pluginId}
+          </h3>
+          {fields.map((spec) => (
+            <PluginSettingField
+              key={spec.key}
+              spec={spec}
+              onSave={(value) => save(pluginId, spec.key, value)}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function stringify(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  return String(value);
+}
+
+function PluginSettingField({
+  spec,
+  onSave,
+}: {
+  spec: PluginSettingSpec;
+  onSave: (value: unknown) => Promise<void>;
+}): JSX.Element {
+  const initial = spec.value;
+  const initialStr = stringify(initial);
+  const [draft, setDraft] = useState<string>(initialStr);
+  const [toggle, setToggle] = useState<boolean>(initial === true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (spec.type === 'toggle') setToggle(initial === true);
+    else setDraft(stringify(initial));
+  }, [initial, spec.type]);
+
+  if (spec.type === 'toggle') {
+    return (
+      <label className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+        <div className="flex flex-col">
+          <span className="text-sm text-zinc-200">{spec.label}</span>
+          {spec.hint ? <span className="text-xs text-zinc-500">{spec.hint}</span> : null}
+        </div>
+        <input
+          type="checkbox"
+          checked={toggle}
+          disabled={saving}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setToggle(next);
+            setSaving(true);
+            try {
+              await onSave(next);
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className="h-4 w-4 accent-brand-500"
+        />
+      </label>
+    );
+  }
+
+  if (spec.type === 'select') {
+    const options = spec.options ?? [];
+    return (
+      <Field label={spec.label} hint={spec.hint}>
+        <select
+          value={draft}
+          disabled={saving}
+          onChange={async (e) => {
+            const next = e.target.value;
+            setDraft(next);
+            const match = options.find((o) => String(o.value) === next);
+            setSaving(true);
+            try {
+              await onSave(match?.value ?? next);
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className={inputClass}
+        >
+          {options.map((opt) => (
+            <option key={String(opt.value)} value={String(opt.value)}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+    );
+  }
+
+  async function commit(): Promise<void> {
+    if (draft === initialStr) return;
+    setSaving(true);
+    try {
+      if (spec.type === 'number') {
+        if (draft.trim() === '') {
+          await onSave(null);
+        } else {
+          const n = Number(draft);
+          if (Number.isNaN(n)) return;
+          await onSave(n);
+        }
+      } else {
+        await onSave(draft);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Field label={spec.label} hint={spec.hint}>
+      <input
+        type={spec.type === 'password' ? 'password' : spec.type === 'number' ? 'number' : 'text'}
+        min={spec.type === 'number' ? spec.min : undefined}
+        max={spec.type === 'number' ? spec.max : undefined}
+        step={spec.type === 'number' ? spec.step : undefined}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        disabled={saving}
+        className={inputClass}
+      />
+    </Field>
   );
 }
 

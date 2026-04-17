@@ -37,6 +37,7 @@ function extractTypeAlias(src, name) {
 const sharedSrc = readFileSync(resolve(root, 'src/shared/types.ts'), 'utf8');
 
 const generated = [
+  extractInterface(sharedSrc, 'Release'),
   extractTypeAlias(sharedSrc, 'DownloadStatus'),
   extractTypeAlias(sharedSrc, 'ScanStatus'),
   extractTypeAlias(sharedSrc, 'RdPhase'),
