@@ -116,6 +116,17 @@ export type DownloadStatus = 'queued' | 'downloading' | 'seeding' | 'paused' | '
 
 export type ScanStatus = 'pending' | 'scanning' | 'clean' | 'threat' | 'error';
 
+/**
+ * Real-Debrid pipeline phases. The first four live on the RD cloud side
+ * (progress 0–50%), `transferring` is the local HTTP stream to disk (50–100%).
+ */
+export type RdPhase =
+  | 'fetching-metadata'
+  | 'queued-remote'
+  | 'rd-downloading'
+  | 'rd-processing'
+  | 'transferring';
+
 export interface DownloadJob {
   infoHash: string;
   name: string;
@@ -134,6 +145,12 @@ export interface DownloadJob {
   /** Human-readable scan result (e.g. threat name, VT detection ratio). */
   scanInfo?: string;
   error?: string;
+  /** Real-Debrid pipeline phase (only set when origin === 'real-debrid'). */
+  rdPhase?: RdPhase;
+  /** Raw RD status string ("magnet_conversion", "downloading", …) for diagnostics. */
+  rdRawStatus?: string;
+  /** Non-fatal hint shown under a job (e.g. "No seeders yet — may be unavailable"). */
+  rdMessage?: string;
 }
 
 export interface GroupPrerequisites {
