@@ -100,7 +100,9 @@ function createWindow(): void {
 // YouTube rejects embeds whose parent origin isn't http(s) (error 152-4).
 // Wrap each embed in an iframe served from http://127.0.0.1 so YouTube sees
 // localhost as the parent instead of file://.
-async function startTrailerServer(): Promise<string> {
+// Returns null if the server fails to start — trailers will be unavailable
+// but the app still boots.
+async function startTrailerServer(): Promise<string | null> {
   const server = createServer((req, res) => {
     const videoId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('v') ?? '';
     if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
@@ -114,8 +116,11 @@ async function startTrailerServer(): Promise<string> {
     );
   });
 
-  return new Promise((resolve, reject) => {
-    server.once('error', reject);
+  return new Promise((resolve) => {
+    server.once('error', (err) => {
+      console.error('[trailer-server] failed to start', err);
+      resolve(null);
+    });
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       resolve(`http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`);

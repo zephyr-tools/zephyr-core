@@ -29,16 +29,28 @@ interface DetailPageProps {
 }
 
 function YouTubeTrailer({ videoId }: { videoId: string }): JSX.Element {
-  const origin = useQuery({
+  const {
+    data: origin,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['trailer-origin'],
     queryFn: () => window.api.getTrailerOrigin(),
     staleTime: Number.POSITIVE_INFINITY,
-  }).data;
+  });
+
+  if (isError || (!isLoading && !origin)) {
+    return (
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-zinc-900 text-zinc-500">
+        <div className="absolute inset-0 flex items-center justify-center text-xs">
+          Trailer unavailable
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="relative w-full overflow-hidden rounded-xl bg-black"
-      style={{ aspectRatio: '16/9' }}
-    >
+    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
       {origin && (
         <iframe
           src={`${origin}/?v=${encodeURIComponent(videoId)}`}
