@@ -266,8 +266,16 @@ export interface BridgeApi {
    */
   invokePlugin(channel: string, payload: unknown): Promise<unknown>;
   installPlugin(url: string): Promise<string>;
+  /** Install a plugin from a local .zip file path. */
+  installPluginFromZip(zipPath: string): Promise<string>;
+  /** Show a native file dialog for picking a plugin .zip. Returns null if the user cancels. */
+  pickPluginZip(): Promise<string | null>;
+  /** Delete a plugin from disk. Running code is unloaded on the next restart. */
+  removePlugin(pluginId: string): Promise<void>;
   listPlugins(): Promise<LoadedPlugin[]>;
   setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>;
+  /** Relaunch the app so install/remove changes take effect across both processes. */
+  restartApp(): Promise<void>;
 }
 
 export interface PluginRendererPath {

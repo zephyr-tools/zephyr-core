@@ -10,14 +10,62 @@ Plugins run with **full Node.js access** inside Zephyr's main process — the sa
 
 ## Installation
 
-1. Locate your Zephyr `userData` directory:
-   - **Windows:** `%APPDATA%\zephyr\`
-   - **macOS:** `~/Library/Application Support/zephyr/`
-2. Create a `plugins/` subdirectory if it does not exist.
-3. Copy your plugin folder into it.
-4. Restart Zephyr.
+**Plugins are distributed as `.zip` archives.** A plugin ZIP contains exactly one top-level directory whose name is the plugin ID (lowercase letters, digits, hyphens), and that directory contains the plugin's `index.js` (and optionally `renderer.js`, assets, etc.). There is no other supported package format.
 
-Zephyr also supports installing plugins directly from a URL — see [Remote Installation](#remote-installation) below.
+Three install routes, all taking the same ZIP:
+
+**1. From the Settings dialog (recommended).** Open **Settings → Plugins**:
+- **Install → From URL**: paste an HTTPS URL that serves a plugin ZIP
+- **Install → From local file**: pick a `.zip` file on disk via the native file picker
+- **Installed**: a list of every plugin on disk, with **Remove** buttons
+
+Any install or remove shows a "Restart required" banner with a **Restart now** button. Restart is required for UI contributions (buttons, pages, setting fields) and for Layer-2 renderer bundles to load.
+
+**2. Manual file drop.** Extract your plugin ZIP into the `userData/plugins/` directory:
+- **Windows:** `%APPDATA%\zephyr\plugins\`
+- **macOS:** `~/Library/Application Support/zephyr/plugins/`
+
+Then restart Zephyr.
+
+**3. Programmatic.** From another plugin or the renderer:
+```js
+await window.api.installPlugin('https://example.com/my-plugin.zip');     // fetch + install
+await window.api.installPluginFromZip('/absolute/path/to/my-plugin.zip'); // local file
+```
+
+### ZIP layout
+
+```
+my-plugin.zip
+└── my-plugin/              ← top-level directory; name becomes the plugin ID
+    ├── index.js            ← required
+    ├── renderer.js         ← optional (Layer 2, built from renderer.jsx)
+    ├── settings.json       ← optional; preserved across reinstalls if already installed
+    └── …any other assets
+```
+
+Requirements enforced on install:
+- Exactly one top-level directory inside the ZIP
+- Directory name matches `^[a-z0-9][a-z0-9-]*$`
+- That directory contains `index.js`
+- No entries with `..` or absolute paths (zip-slip defense)
+- Total uncompressed size ≤ 10 MB
+
+### Packaging a plugin
+
+For the in-repo examples, use the `package:plugin` script. It runs `npm install && npm run build` when the plugin has a build step, strips dev-only files (`node_modules`, `src/`, `package.json`, esbuild/tsconfig), and writes `examples/dist/<pluginId>.zip`:
+
+```bash
+# Layer 1, no build:
+npm run package:plugin -- examples/plugins/open-pcgamingwiki
+# → examples/dist/open-pcgamingwiki.zip
+
+# Layer 2, builds renderer.js first:
+npm run package:plugin -- examples/renderer-plugin-template
+# → examples/dist/my-plugin.zip     (id from package.json zephyr.pluginId)
+```
+
+The plugin ID is resolved in this order: `--id` flag → `package.json`'s `zephyr.pluginId` → the directory basename. The renderer template ships with `"zephyr": { "pluginId": "my-plugin" }` in its `package.json` so its zip comes out correctly named without extra flags.
 
 ---
 
@@ -334,26 +382,42 @@ You get autocomplete on all `zephyr.*` methods, a fully-typed `Release` for butt
 
 ---
 
-## Remote Installation
+## Install, Remove, and Restart
 
-Zephyr can install a plugin directly from a `.js` URL:
+Both install methods take the same ZIP format (see "ZIP layout" above) and share the same validation, rollback, and settings-preservation logic. The only difference is where the ZIP comes from.
 
+### URL install (`installPlugin`)
 ```js
-// From another plugin or future Settings UI:
-await window.api.installPlugin('https://example.com/my-plugin.js');
+await window.api.installPlugin('https://example.com/my-plugin.zip');
+```
+- Requires `https://` scheme and a valid URL
+- Fetched bytes are size-checked against the 10 MB cap before any disk write
+- The bytes are buffered to a temp file and then handed off to the same extraction pipeline as a local install; the temp file is removed after
+- The plugin ID is the ZIP's top-level directory name — **not** the URL basename — so `https://example.com/download` can serve a ZIP that extracts as `my-plugin`
+
+### Local ZIP install (`installPluginFromZip`)
+```js
+// From the Plugins tab, this happens after the native file picker.
+// Programmatic callers pass an absolute path:
+await window.api.installPluginFromZip('/absolute/path/to/my-plugin.zip');
 ```
 
-The file is downloaded to `userData/plugins/<pluginId>/index.js` and loaded
-into the main process. **A restart is required** for the new button, page,
-or settings field to appear in the UI. The plugin ID is derived from the URL
-basename and must match `^[a-z0-9][a-z0-9-]*$` — other filenames are rejected.
+### Reinstall behavior (both methods)
+If a plugin with the same ID already exists, its `settings.json` is preserved across the reinstall. All other files in the target directory are overwritten. If `setup()` throws during the reinstall, only the freshly-extracted files are rolled back — the prior install stays functional.
 
-If the plugin's `setup()` throws, the written file is rolled back and the
-error is surfaced to the caller.
+### Remove (`removePlugin`)
+```js
+await window.api.removePlugin('my-plugin');
+```
+Deletes the plugin directory (including `settings.json`). The plugin remains loaded in the running main process until restart — IPC handlers continue to respond, setting-change listeners still fire — but a restart removes it entirely.
 
-> Remote installation only supports single-file Layer 1 plugins. Renderer plugins (Layer 2) must be installed manually.
+### Restart (`restartApp`)
+```js
+await window.api.restartApp();   // app.relaunch() + app.exit(0)
+```
+Relaunches the app with the same arguments, so install/remove effects flow through to both main and renderer.
 
-**Only install from HTTPS URLs. Only install from sources you trust.** A plugin installed this way runs with full system access.
+**Only install from HTTPS URLs or trusted ZIPs. Plugins run with full system access.**
 
 ---
 

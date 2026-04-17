@@ -78,9 +78,14 @@ const api: BridgeApi = {
     return ipcRenderer.invoke(`plugin:${bare}`, payload);
   },
   installPlugin: (url: string): Promise<string> => ipcRenderer.invoke('plugins:install', url),
+  installPluginFromZip: (zipPath: string): Promise<string> =>
+    ipcRenderer.invoke('plugins:install-zip', zipPath),
+  pickPluginZip: (): Promise<string | null> => ipcRenderer.invoke('shell:pick-zip'),
+  removePlugin: (pluginId: string): Promise<void> => ipcRenderer.invoke('plugins:remove', pluginId),
   listPlugins: (): Promise<LoadedPlugin[]> => ipcRenderer.invoke('plugins:list'),
   setPluginSetting: (pluginId: string, key: string, value: unknown): Promise<void> =>
     ipcRenderer.invoke('plugins:set-setting', pluginId, key, value),
+  restartApp: (): Promise<void> => ipcRenderer.invoke('app:restart'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -139,6 +139,7 @@ src/
 | `npm run lint` | BiomeJS linting |
 | `npm run format` | BiomeJS auto-format |
 | `npm run generate:plugin-types` | Sync plugin-facing types (`Release`, `DownloadJob`, …) into `examples/plugins/zephyr-plugin.d.ts` from `src/shared/types.ts`. Also runs in CI before typecheck. |
+| `npm run package:plugin -- <dir>` | Package an example plugin directory as a distributable `.zip` in `examples/dist/`. Runs `npm run build` inside the plugin first if it has one. |
 | `npm run package` | Build + package (directory output) |
 | `npm run make` | Build + create distributable installer |
 

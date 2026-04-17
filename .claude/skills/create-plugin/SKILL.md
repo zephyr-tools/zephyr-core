@@ -153,12 +153,25 @@ function MySection({ release }) {
 > 2. Copy the whole directory (including the built `renderer.js`) into `%APPDATA%\zephyr\plugins\`
 > 3. Restart Zephyr
 
-### 6. Install instructions (main-process-only plugins)
+### 6. Install instructions
 
-Tell the user:
-> Copy `examples/plugins/$ARGUMENTS/` into `%APPDATA%\zephyr\plugins\` (Windows)
-> or `~/Library/Application Support/zephyr/plugins/` (macOS), then restart Zephyr.
-> The button will appear in the DetailPage top bar.
+**Plugins are distributed as ZIPs.** The ZIP must contain exactly one top-level folder named `$ARGUMENTS/` (the plugin ID), with `index.js` (and any optional assets like a built `renderer.js`) inside.
+
+To package, use the repo's `package:plugin` script — it runs any build step, strips dev-only files, and writes the ZIP to `examples/dist/`:
+
+```bash
+npm run package:plugin -- examples/plugins/$ARGUMENTS
+# → examples/dist/$ARGUMENTS.zip
+```
+
+If the plugin has a renderer layer, add `"zephyr": { "pluginId": "$ARGUMENTS" }` to the plugin's `package.json` so the packager picks the right ID regardless of the folder name.
+
+Install routes for the user:
+- **UI, from local file:** Settings → Plugins → "From local file" → pick the `.zip`.
+- **UI, from URL:** Settings → Plugins → "From URL" with an HTTPS URL that serves the ZIP (e.g. a GitHub Release asset, a CDN).
+- **Manual:** extract the ZIP into `%APPDATA%\zephyr\plugins\` (Windows) or `~/Library/Application Support/zephyr/plugins/` (macOS).
+
+Either way, a restart is needed for buttons, pages, or setting fields to appear. The Plugins tab shows a "Restart now" banner after install.
 
 ---
 

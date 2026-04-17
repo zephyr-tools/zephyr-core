@@ -76,7 +76,9 @@ shell:open-external     shell:show-item-in-folder
 torrent:search          torrent:add             torrent:list
 torrent:pause           torrent:resume          torrent:remove
 plugins:get-ui          plugins:get-renderer-paths
-plugins:list            plugins:install         plugins:set-setting
+plugins:list            plugins:install         plugins:install-zip
+plugins:remove          plugins:set-setting
+shell:pick-zip          app:restart
 plugin:<channel>        (dynamic — registered by each plugin via zephyr.ipc.handle())
 ```
 
@@ -204,6 +206,24 @@ Two-layer architecture — plugins can be main-process-only or include a rendere
 - `Release` + `DownloadJob` (and dependent types) are auto-generated from `src/shared/types.ts` via `npm run generate:plugin-types`. The generator runs as a CI step in the release pipeline before typecheck.
 
 **Plugin template** — `examples/renderer-plugin-template/` contains esbuild config + shims + example `renderer.jsx` using the Plugin UI Kit.
+
+**Plugin management UI** — `SettingsDialog` → Plugins tab (always visible):
+- Restart-required banner with "Restart now" button (calls `app:restart` → `app.relaunch()` + `app.exit(0)`)
+- Installed list with per-plugin "Remove" buttons (`plugins:remove`)
+- Install from URL input (`plugins:install`, HTTPS ZIP URL) and "From local file" button (`shell:pick-zip` → `plugins:install-zip`)
+- Per-plugin settings fields rendered below, still live (no restart needed for setting writes)
+
+**Packaging examples for distribution** — `scripts/package-plugin.mjs`, invoked as `npm run package:plugin -- <plugin-dir>`. Builds if the dir has a `build` script, then zips into `examples/dist/<pluginId>.zip`. Plugin ID resolution: `--id` flag → `package.json`'s `zephyr.pluginId` → dir basename. Denylist excludes `node_modules`, `src`, `package.json`, `esbuild.config.js`, `tsconfig*.json`, etc.
+
+**Plugins are distributed as ZIPs only.** Both `installFromUrl` and `installFromZip` expect the same layout. `installFromUrl` fetches the HTTPS URL, writes to a temp file in `app.getPath('temp')`, and delegates to `installFromZip` so validation/extraction/rollback stay unified.
+
+**ZIP install rules** (`PluginHost.installFromZip`, uses `fflate`):
+- ≤ 10 MB uncompressed total (also checked on URL fetch before disk write)
+- Exactly one top-level directory matching `^[a-z0-9][a-z0-9-]*$` containing `index.js`
+- The plugin ID comes from the ZIP's top-level directory, NOT from the URL basename
+- Reject entries with `..`, absolute paths, or backslashes (zip-slip defense)
+- Existing `settings.json` is preserved across reinstalls; other files overwritten
+- On setup() failure: rolled-back extraction (full dir removed if fresh install, extracted files removed if reinstall)
 
 ## State
 - **Zustand** (`useUiStore`) — transient UI: search query, category, page, selectedRelease, `pluginPage` (active plugin route id or null)

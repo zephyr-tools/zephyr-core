@@ -9,7 +9,10 @@ import type {
   PluginUi,
 } from '@shared/types';
 import { app, ipcMain, net } from 'electron';
+import { unzipSync } from 'fflate';
 import { readJson, writeJson } from './cache.js';
+
+const MAX_ZIP_BYTES = 10 * 1024 * 1024;
 
 interface PluginSettingRegisterSpec {
   key: string;
@@ -126,44 +129,43 @@ export class PluginHost {
     }
   }
 
+  /**
+   * Install a plugin from an HTTPS URL. The URL must point to a ZIP archive
+   * matching the same layout `installFromZip` requires — exactly one
+   * top-level directory with a valid plugin ID, containing `index.js`.
+   * The fetched bytes are written to a temp file and delegated to
+   * `installFromZip` so validation, extraction, and rollback stay unified.
+   */
   async installFromUrl(url: string): Promise<string> {
     if (!/^https:\/\//.test(url)) throw new Error('Plugin URL must use HTTPS');
-
-    // Derive a safe pluginId from the URL path's basename (strip query/hash
-    // via URL.pathname, then drop any trailing .js). We require the standard
-    // `^[a-z0-9][a-z0-9-]*$` convention to prevent path-traversal style names
-    // and reserved filenames landing on disk.
-    let pathname: string;
     try {
-      pathname = new URL(url).pathname;
+      new URL(url);
     } catch {
       throw new Error('Plugin URL is not a valid URL');
     }
-    const basename = path.posix.basename(pathname).replace(/\.js$/i, '');
-    if (!VALID_PLUGIN_ID.test(basename)) {
-      throw new Error(
-        `Plugin ID "${basename}" is invalid. Use lowercase letters, digits, and hyphens only.`,
-      );
-    }
-    const pluginId = basename;
 
     const res = await net.fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch plugin: ${res.status}`);
-    const js = await res.text();
 
-    const pluginDir = path.join(this.pluginsDir, pluginId);
-    await fs.mkdir(pluginDir, { recursive: true });
-    const entryFile = path.join(pluginDir, 'index.js');
-    await fs.writeFile(entryFile, js, 'utf8');
-
-    try {
-      await this._loadPlugin(pluginId, entryFile, { throwOnError: true });
-    } catch (err) {
-      // Roll back the written file so a broken plugin does not persist.
-      await fs.rm(pluginDir, { recursive: true, force: true }).catch(() => undefined);
-      throw err;
+    const ab = await res.arrayBuffer();
+    if (ab.byteLength > MAX_ZIP_BYTES) {
+      throw new Error(
+        `ZIP exceeds the ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB plugin size limit`,
+      );
     }
-    return pluginId;
+
+    // Write to a temp file and reuse installFromZip so validation, extraction,
+    // size checks, and rollback behave identically to a local ZIP install.
+    const tmpPath = path.join(
+      app.getPath('temp'),
+      `zephyr-plugin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.zip`,
+    );
+    await fs.writeFile(tmpPath, Buffer.from(ab));
+    try {
+      return await this.installFromZip(tmpPath);
+    } finally {
+      await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+    }
   }
 
   getUi(): PluginUi {
@@ -176,6 +178,147 @@ export class PluginHost {
         value: this.settingsCache.get(s.pluginId)?.[s.key] ?? null,
       })),
     };
+  }
+
+  /**
+   * Install a plugin from a local .zip file. The zip must contain exactly one
+   * top-level directory whose name matches `^[a-z0-9][a-z0-9-]*$` and includes
+   * an `index.js`. Path traversal and absolute paths in entries are rejected.
+   * If a plugin with the same id is already installed, its `settings.json` is
+   * preserved across the reinstall.
+   *
+   * Like `installFromUrl`, this both extracts to disk and loads the plugin
+   * into the running main process. Renderer UI (buttons, settings fields)
+   * still requires a restart to appear.
+   */
+  async installFromZip(zipPath: string): Promise<string> {
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+      stat = await fs.stat(zipPath);
+    } catch {
+      throw new Error(`ZIP file not found: ${zipPath}`);
+    }
+    if (!stat.isFile()) throw new Error('Path is not a file');
+    if (stat.size > MAX_ZIP_BYTES) {
+      throw new Error(
+        `ZIP exceeds the ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB plugin size limit`,
+      );
+    }
+
+    const bytes = await fs.readFile(zipPath);
+
+    let unzipped: Record<string, Uint8Array>;
+    try {
+      unzipped = unzipSync(new Uint8Array(bytes));
+    } catch (err) {
+      throw new Error(`Invalid ZIP: ${(err as Error).message}`);
+    }
+
+    // Validate entry paths + identify the single top-level directory.
+    const fileEntries = Object.entries(unzipped).filter(([name]) => !name.endsWith('/'));
+    if (fileEntries.length === 0) throw new Error('ZIP is empty');
+
+    for (const [name] of fileEntries) {
+      if (name.startsWith('/') || name.includes('\\') || name.split('/').includes('..')) {
+        throw new Error(`Unsafe entry path in ZIP: "${name}"`);
+      }
+    }
+
+    const firstEntryName = fileEntries[0]?.[0];
+    if (!firstEntryName) throw new Error('ZIP is empty');
+    const firstSlash = firstEntryName.indexOf('/');
+    if (firstSlash === -1) {
+      throw new Error(
+        'ZIP must contain exactly one top-level directory (e.g. `my-plugin/index.js`), not loose files',
+      );
+    }
+    const rootDir = firstEntryName.slice(0, firstSlash);
+    for (const [name] of fileEntries) {
+      if (!name.startsWith(`${rootDir}/`)) {
+        throw new Error(
+          `ZIP must contain exactly one top-level directory; found both "${rootDir}/" and "${name.split('/')[0]}/"`,
+        );
+      }
+    }
+
+    if (!VALID_PLUGIN_ID.test(rootDir)) {
+      throw new Error(
+        `Plugin ID "${rootDir}" is invalid. Use lowercase letters, digits, and hyphens only.`,
+      );
+    }
+    if (!(`${rootDir}/index.js` in unzipped)) {
+      throw new Error(`ZIP is missing "${rootDir}/index.js"`);
+    }
+
+    const pluginId = rootDir;
+    const pluginDir = path.join(this.pluginsDir, pluginId);
+
+    // Preserve any existing settings.json across a reinstall so the user
+    // doesn't have to re-enter API keys / preferences.
+    let preservedSettings: Buffer | null = null;
+    try {
+      preservedSettings = await fs.readFile(path.join(pluginDir, 'settings.json'));
+    } catch {
+      // didn't exist
+    }
+
+    await fs.mkdir(pluginDir, { recursive: true });
+
+    // Track what we extracted so we can roll back on failure.
+    const extractedPaths: string[] = [];
+    try {
+      for (const [entryName, content] of fileEntries) {
+        const relative = entryName.slice(rootDir.length + 1);
+        if (!relative) continue;
+        const destPath = path.join(pluginDir, relative);
+        // Defense in depth: ensure resolved path stays inside pluginDir.
+        if (!destPath.startsWith(pluginDir + path.sep) && destPath !== pluginDir) {
+          throw new Error(`Unsafe entry resolved outside plugin dir: "${entryName}"`);
+        }
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+        await fs.writeFile(destPath, Buffer.from(content));
+        extractedPaths.push(destPath);
+      }
+
+      if (preservedSettings) {
+        await fs.writeFile(path.join(pluginDir, 'settings.json'), preservedSettings);
+      }
+
+      await this._loadPlugin(pluginId, path.join(pluginDir, 'index.js'), { throwOnError: true });
+    } catch (err) {
+      // Remove whatever we wrote; if there was no prior install, remove the dir itself.
+      if (preservedSettings == null) {
+        await fs.rm(pluginDir, { recursive: true, force: true }).catch(() => undefined);
+      } else {
+        for (const p of extractedPaths) {
+          await fs.rm(p, { force: true }).catch(() => undefined);
+        }
+      }
+      throw err;
+    }
+
+    return pluginId;
+  }
+
+  /**
+   * Remove a plugin's files from disk. Does NOT unload the plugin from the
+   * running main process — the user must restart the app for IPC handlers
+   * and UI contributions to drop. Its persisted `settings.json` is also
+   * deleted (removal means removal).
+   */
+  async removePlugin(pluginId: string): Promise<void> {
+    if (!VALID_PLUGIN_ID.test(pluginId)) throw new Error('Invalid plugin id');
+    const pluginDir = path.join(this.pluginsDir, pluginId);
+    // Safety: verify the resolved path is still inside pluginsDir.
+    if (!pluginDir.startsWith(this.pluginsDir + path.sep)) {
+      throw new Error('Plugin path is outside the plugins directory');
+    }
+    try {
+      await fs.stat(pluginDir);
+    } catch {
+      throw new Error(`Plugin "${pluginId}" is not installed`);
+    }
+    await fs.rm(pluginDir, { recursive: true, force: true });
   }
 
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {

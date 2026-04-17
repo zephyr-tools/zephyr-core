@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import type { AppSettings, ReleaseListQuery } from '@shared/types';
-import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.js';
 import { cachePaths } from './cache.js';
 import { GameDetailsService } from './details.js';
@@ -243,11 +243,40 @@ function registerIpc(): void {
   ipcMain.handle('plugins:get-renderer-paths', () => pluginHost.getRendererPaths());
   ipcMain.handle('plugins:list', () => pluginHost.getLoadedPlugins());
   ipcMain.handle('plugins:install', async (_event, url: string) => pluginHost.installFromUrl(url));
+  ipcMain.handle('plugins:install-zip', async (_event, zipPath: string) =>
+    pluginHost.installFromZip(zipPath),
+  );
+  ipcMain.handle('plugins:remove', async (_event, pluginId: string) =>
+    pluginHost.removePlugin(pluginId),
+  );
   ipcMain.handle(
     'plugins:set-setting',
     async (_event, pluginId: string, key: string, value: unknown) =>
       pluginHost.setPluginSetting(pluginId, key, value),
   );
+
+  // Zip file picker — scoped to the Plugins tab. Returns null if cancelled.
+  ipcMain.handle('shell:pick-zip', async (): Promise<string | null> => {
+    const owner = mainWindow ?? undefined;
+    const result = await (owner
+      ? dialog.showOpenDialog(owner, {
+          title: 'Select plugin ZIP',
+          filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+          properties: ['openFile'],
+        })
+      : dialog.showOpenDialog({
+          title: 'Select plugin ZIP',
+          filters: [{ name: 'Zip archive', extensions: ['zip'] }],
+          properties: ['openFile'],
+        }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.handle('app:restart', () => {
+    app.relaunch();
+    app.exit(0);
+  });
 }
 
 app.whenReady().then(async () => {
