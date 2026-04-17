@@ -32,11 +32,27 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
     getWindow()?.webContents.send('update:downloaded');
   });
 
+  autoUpdater.on('error', (err) => {
+    console.error('[auto-updater] error:', err);
+  });
+
   // Initial check — wait a few seconds so the window is fully loaded.
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5_000);
+  setTimeout(
+    () =>
+      autoUpdater
+        .checkForUpdates()
+        .catch((err) => console.error('[auto-updater] initial check failed:', err)),
+    5_000,
+  );
 
   // Re-check every 4 hours while the app is running.
-  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1_000);
+  setInterval(
+    () =>
+      autoUpdater
+        .checkForUpdates()
+        .catch((err) => console.error('[auto-updater] periodic check failed:', err)),
+    4 * 60 * 60 * 1_000,
+  );
 }
 
 /** Manually trigger an update check. */

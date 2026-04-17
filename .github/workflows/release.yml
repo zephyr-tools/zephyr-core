@@ -34,8 +34,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Build and publish
-        run: npm run build && npx electron-builder --publish always
+      - name: Build
+        run: npm run build && npx electron-builder --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -59,8 +59,8 @@ jobs:
             ---
           draft: false
           files: |
-            release/**/*.exe
-            release/**/*.blockmap
+            release/**/Zephyr-Setup-*-win-x64.exe
+            release/**/Zephyr-Setup-*-win-x64.exe.blockmap
             release/**/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
