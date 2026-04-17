@@ -65,6 +65,17 @@ async function ensureServices(): Promise<void> {
   }
 }
 
+/**
+ * Create and show the main application BrowserWindow with platform-appropriate UI and navigation handling.
+ *
+ * Configures window size, minimums, background color, title bar style (macOS vs other), menu auto-hide, and renderer
+ * webPreferences (preload script path, context isolation, no Node integration, sandbox disabled). Registers:
+ * - a handler to show the window when it's ready-to-show,
+ * - a window-open handler that opens external URLs in the user's default browser and prevents in-app navigation.
+ *
+ * In development, loads the renderer from ELECTRON_RENDERER_URL and opens DevTools detached; otherwise loads the
+ * packaged renderer HTML file.
+ */
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -99,7 +110,16 @@ function createWindow(): void {
 
 // YouTube rejects embeds whose parent origin isn't http(s) (error 152-4).
 // Wrap each embed in an iframe served from http://127.0.0.1 so YouTube sees
-// localhost as the parent instead of file://.
+/**
+ * Start a local HTTP server that serves a minimal full-window YouTube embed page for a validated video ID.
+ *
+ * The server listens on 127.0.0.1 on an ephemeral port. For each request it reads the `v` query parameter,
+ * validates it as an 11-character YouTube video ID (letters, digits, `_` or `-`), and:
+ * - responds with HTTP 400 if the `v` parameter is missing or invalid,
+ * - responds with a simple HTML page containing a full-size YouTube iframe embed when valid.
+ *
+ * @returns The server origin URL (e.g., `http://127.0.0.1:<port>`).
+ */
 async function startTrailerServer(): Promise<string> {
   const server = createServer((req, res) => {
     const videoId = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('v') ?? '';
@@ -123,6 +143,11 @@ async function startTrailerServer(): Promise<string> {
   });
 }
 
+/**
+ * Register Electron IPC handlers for main-process services and utilities.
+ *
+ * Handlers expose functionality for PreDB queries, artwork retrieval/refresh/cache clearing, settings get/set, game details and trailers, shell helpers (open external URL, reveal in folder), and torrent operations (search, add, list, pause, resume, remove). Ensures required services are initialized before delegating work to their respective service instances.
+ */
 function registerIpc(): void {
   ipcMain.handle('predb:list', async (_event, query: ReleaseListQuery) => {
     await ensureServices();

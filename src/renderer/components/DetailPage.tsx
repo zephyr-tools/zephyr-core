@@ -28,6 +28,12 @@ interface DetailPageProps {
   onOpenDownloads?: () => void;
 }
 
+/**
+ * Renders a 16:9 container that embeds a YouTube trailer using a dynamically fetched trailer origin.
+ *
+ * @param videoId - YouTube video identifier used as the `v` query parameter in the embed URL
+ * @returns A JSX element containing a 16:9 black container; when a trailer origin is available an iframe is rendered with its `src` set to `${origin}/?v=${encodeURIComponent(videoId)}`, otherwise the container is rendered without an iframe.
+ */
 function YouTubeTrailer({ videoId }: { videoId: string }): JSX.Element {
   const origin = useQuery({
     queryKey: ['trailer-origin'],
@@ -52,6 +58,12 @@ function YouTubeTrailer({ videoId }: { videoId: string }): JSX.Element {
   );
 }
 
+/**
+ * Render a trailer either as a YouTube embed or an HTML5 video element.
+ *
+ * @param trailer - Trailer metadata; when `trailer.type === 'youtube'` `trailer.url` is treated as a YouTube video id, otherwise `trailer.url` is used as the video source and `trailer.thumbnailUrl` as the poster.
+ * @returns A React element that renders the trailer as a YouTube embed (for YouTube trailers) or an HTML5 `<video>` with controls and a 16:9 aspect ratio.
+ */
 function TrailerPlayer({ trailer }: { trailer: GameTrailer }): JSX.Element {
   if (trailer.type === 'youtube') {
     return <YouTubeTrailer videoId={trailer.url} />;
