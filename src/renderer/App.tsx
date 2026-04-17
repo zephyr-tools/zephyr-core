@@ -4,6 +4,7 @@ import { type JSX, useState } from 'react';
 import { DetailPage } from './components/DetailPage';
 import { DownloadsDrawer } from './components/DownloadsDrawer';
 import { Header } from './components/Header';
+import { PluginPageView } from './components/PluginPageView';
 import { ReleaseGrid } from './components/ReleaseGrid';
 import { SettingsDialog } from './components/SettingsDialog';
 import { UpdateNotification } from './components/UpdateNotification';
@@ -19,6 +20,7 @@ export default function App(): JSX.Element {
   const setPage = useUiStore((s) => s.setPage);
   const selectedRelease = useUiStore((s) => s.selectedRelease);
   const setSelectedRelease = useUiStore((s) => s.setSelectedRelease);
+  const pluginPage = useUiStore((s) => s.pluginPage);
 
   const debouncedSearch = useDebouncedValue(search, 350);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,6 +33,15 @@ export default function App(): JSX.Element {
     queryFn: () => window.api.listReleases({ q: debouncedSearch, category, page, rows: 60 }),
     placeholderData: keepPreviousData,
   });
+
+  if (pluginPage) {
+    return (
+      <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
+        <PluginPageView />
+        <UpdateNotification />
+      </div>
+    );
+  }
 
   if (selectedRelease) {
     return (

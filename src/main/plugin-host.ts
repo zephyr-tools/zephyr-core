@@ -1,15 +1,13 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { LoadedPlugin, PluginUi } from '@shared/types';
+import type { DownloadJob, LoadedPlugin, PluginUi } from '@shared/types';
 import { app, ipcMain, net } from 'electron';
 import { readJson, writeJson } from './cache.js';
 
 interface ZephyrAPI {
   ui: {
     addDetailButton(spec: { label: string; action: string; icon?: string }): void;
-    addDetailSection(spec: { title: string; action: string }): void;
-    addCardMenuItem(spec: { label: string; action: string }): void;
   };
   ipc: {
     handle(channel: string, handler: (payload: unknown) => unknown | Promise<unknown>): void;
@@ -20,7 +18,7 @@ interface ZephyrAPI {
     set(key: string, value: unknown): Promise<void>;
   };
   hooks: {
-    onDownloadComplete(handler: (job: unknown) => void): void;
+    onDownloadComplete(handler: (job: DownloadJob) => void): void;
     onAppReady(handler: () => void): void;
   };
 }
@@ -39,9 +37,10 @@ export class PluginHost {
   private readonly pluginsDir: string;
   private ui: PluginUi = { detailButtons: [], detailSections: [], cardMenuItems: [], settings: [] };
   private settingsCache = new Map<string, PluginSettingsStore>();
-  private downloadCompleteHandlers: Array<(job: unknown) => void> = [];
+  private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
   private loadedPlugins: LoadedPlugin[] = [];
+  private rendererUrls = new Map<string, string>(); // pluginId -> file:// URL
 
   constructor() {
     this.pluginsDir = path.join(app.getPath('userData'), 'plugins');
@@ -129,7 +128,11 @@ export class PluginHost {
     return this.loadedPlugins;
   }
 
-  notifyDownloadComplete(job: unknown): void {
+  getRendererPaths(): Array<{ pluginId: string; url: string }> {
+    return Array.from(this.rendererUrls.entries()).map(([pluginId, url]) => ({ pluginId, url }));
+  }
+
+  notifyDownloadComplete(job: DownloadJob): void {
     for (const handler of this.downloadCompleteHandlers) {
       try {
         handler(job);
@@ -159,6 +162,14 @@ export class PluginHost {
         version: plugin.version ?? '0.0.0',
       });
 
+      const rendererJs = path.join(path.dirname(entryFile), 'renderer.js');
+      try {
+        await fs.access(rendererJs);
+        this.rendererUrls.set(pluginId, pathToFileURL(rendererJs).href);
+      } catch {
+        // no renderer.js — main-process-only plugin
+      }
+
       console.log(
         `[PluginHost] Loaded plugin "${plugin.name ?? pluginId}" v${plugin.version ?? '?'}`,
       );
@@ -184,12 +195,6 @@ export class PluginHost {
             icon: spec.icon,
           });
         },
-        addDetailSection(spec) {
-          host.ui.detailSections.push({ title: spec.title, action: `plugin:${spec.action}` });
-        },
-        addCardMenuItem(spec) {
-          host.ui.cardMenuItems.push({ label: spec.label, action: `plugin:${spec.action}` });
-        },
       },
       ipc: {
         handle(channel, handler) {
@@ -209,6 +214,11 @@ export class PluginHost {
           return host.settingsCache.get(pluginId)?.[key] ?? null;
         },
         async set(key, value) {
+          if (!host.ui.settings.some((s) => s.pluginId === pluginId && s.key === key)) {
+            console.warn(
+              `[Plugin:${pluginId}] settings.set("${key}") — key not registered via settings.register(); value will be persisted but won't appear in the settings UI`,
+            );
+          }
           const store = host.settingsCache.get(pluginId) ?? {};
           store[key] = value;
           host.settingsCache.set(pluginId, store);

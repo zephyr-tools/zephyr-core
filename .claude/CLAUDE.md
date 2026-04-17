@@ -35,6 +35,7 @@ shared/        Zero-dep types only — imported by all three
 | `src/main/settings.ts` | `SettingsStore` — persists API keys, env fallback for nulls |
 | `src/main/cache.ts` | Artwork blob cache, JSON read/write helpers, `cachePaths` |
 | `src/main/webtorrent.d.ts` | Ambient types for WebTorrent v2 (ships no bundled types) |
+| `src/main/plugin-host.ts` | `PluginHost` — loads plugins from userData/plugins/, builds ZephyrAPI, fires hooks |
 
 ### Preload + Shared
 | File | Role |
@@ -56,9 +57,13 @@ shared/        Zero-dep types only — imported by all three
 | `src/renderer/components/SearchBar.tsx` | Search input |
 | `src/renderer/hooks/useDownloads.ts` | Subscribes to `torrent:progress` push events from main |
 | `src/renderer/hooks/useDebouncedValue.ts` | Generic debounce hook |
-| `src/renderer/lib/store.ts` | Zustand — `useUiStore` (search, category, page, selectedRelease) |
+| `src/renderer/lib/store.ts` | Zustand — `useUiStore` (search, category, page, selectedRelease, pluginPage) |
 | `src/renderer/lib/format.ts` | `formatSize()`, `formatRelativeTime()` |
 | `src/renderer/lib/cn.ts` | `cn()` — clsx + tailwind-merge |
+| `src/renderer/contexts/PluginContext.tsx` | `PluginProvider` — loads specs (main) + renderer.js components; exposes `usePluginContext()`, `usePluginComponents()` |
+| `src/renderer/components/PluginErrorBoundary.tsx` | React class error boundary wrapping each plugin render point; shows inline error card |
+| `src/renderer/components/PluginPageView.tsx` | Full-page view for plugin routes; lazy-loads route component with Suspense + PluginErrorBoundary |
+| `src/renderer/types/plugin.ts` | Renderer-only plugin types: `PluginRoute`, `PluginDetailButton`, `PluginDetailSection`, `DetailButton` discriminated union, `RendererPluginRegistry` |
 
 ## IPC Convention
 Channel naming: `noun:action`. Add handler in `main/index.ts`, expose in `preload/index.ts`, declare in `BridgeApi` in `shared/types.ts`.
@@ -70,6 +75,8 @@ game:details            game:trailer            game:group-prereqs
 shell:open-external     shell:show-item-in-folder
 torrent:search          torrent:add             torrent:list
 torrent:pause           torrent:resume          torrent:remove
+plugins:get-ui          plugins:get-renderer-paths
+plugin:<channel>        (dynamic — registered by each plugin via zephyr.ipc.handle())
 ```
 
 Push event (main → renderer): `torrent:progress` — broadcast every 1s with all `DownloadJob[]`.
@@ -162,8 +169,36 @@ npm run lint       # biome check
 npm run format     # biome check --write
 ```
 
+## Plugin System
+
+Two-layer architecture — plugins can be main-process-only or include a renderer layer:
+
+**Layer 1 — `index.js` (main process, no build step)**
+- Loaded by `PluginHost` from `userData/plugins/<pluginId>/index.js`
+- Calls `setup(zephyr)` with `ZephyrAPI` — registers buttons, IPC handlers, settings, hooks
+- `zephyr.ui.addDetailButton({ label, action })` — adds a simple IPC-triggered button to DetailPage
+- `zephyr.ipc.handle(channel, handler)` — `plugin:` prefix added automatically; channel must be namespaced `pluginId:action`
+- `zephyr.settings.register/get/set` — settings appear in Zephyr Settings UI; `set()` warns if key not registered first
+- `zephyr.hooks.onDownloadComplete(job: DownloadJob)` / `onAppReady()`
+
+**Layer 2 — `renderer.js` (renderer process, requires esbuild build)**
+- Sits alongside `index.js` in the plugin directory
+- Exports `detailSections`, `detailButtons`, `routes` as named exports
+- React is shared via `window.__zephyrReact` / `window.__zephyrJsxRuntime` globals (set in `src/renderer/main.tsx` before first render)
+- esbuild aliases redirect `import 'react'` to shims that read these globals — prevents duplicate React instance errors
+- Loaded dynamically in `PluginContext` via `import(file:// url)` with 5s per-plugin timeout
+- Duplicate ids across plugins: first registration wins, console warning emitted
+- Each render point wrapped in `PluginErrorBoundary` — plugin crash is isolated, rest of app unaffected
+
+**Plugin type definitions** — `examples/plugins/zephyr-plugin.d.ts`
+- `DownloadJob` and related types are auto-generated from `src/shared/types.ts` via `npm run generate:plugin-types`
+- Run `generate:plugin-types` is also executed as a CI step in the release pipeline before typecheck
+
+**Plugin template** — `examples/renderer-plugin-template/` contains esbuild config + shims + example renderer.jsx
+
 ## State
-- **Zustand** (`useUiStore`) — transient UI: search query, category, page, selectedRelease
-- **TanStack Query** — artwork, releases, settings, game details, trailers, torrent search, group prerequisites
+- **Zustand** (`useUiStore`) — transient UI: search query, category, page, selectedRelease, `pluginPage` (active plugin route id or null)
+- **TanStack Query** — artwork, releases, settings, game details, trailers, torrent search, group prerequisites, plugin UI specs (`plugin-ui`), plugin renderer paths (`plugin-renderer-paths`)
 - **Push subscription** — `useDownloads()` hook subscribes to `torrent:progress` IPC events
-- **Disk** — `userData/settings.json`, `userData/downloads.json`, `userData/cache/artwork/`
+- **Plugin components** — `PluginContext` holds `specs` (serializable, from main) and `components` (React, from renderer.js imports)
+- **Disk** — `userData/settings.json`, `userData/downloads.json`, `userData/cache/artwork/`, `userData/plugins/<id>/settings.json`

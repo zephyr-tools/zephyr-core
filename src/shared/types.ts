@@ -182,7 +182,7 @@ export interface UpdateInfo {
 
 export interface PluginButtonSpec {
   label: string;
-  /** Full IPC channel including 'plugin:' prefix. */
+  /** Full IPC channel with `plugin:` prefix — set by PluginHost, not the plugin author. */
   action: string;
   icon?: string;
 }
@@ -250,9 +250,16 @@ export interface BridgeApi {
 
   // Plugin system
   getPluginUi(): Promise<PluginUi>;
+  getPluginRendererPaths(): Promise<PluginRendererPath[]>;
   invokePlugin(channel: string, payload: unknown): Promise<unknown>;
   installPlugin(url: string): Promise<string>;
   listPlugins(): Promise<LoadedPlugin[]>;
+}
+
+export interface PluginRendererPath {
+  pluginId: string;
+  /** file:// URL to the renderer.js for this plugin. */
+  url: string;
 }
 
 declare global {

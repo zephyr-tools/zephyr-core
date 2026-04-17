@@ -4,6 +4,7 @@ import type {
   BridgeApi,
   DownloadJob,
   LoadedPlugin,
+  PluginRendererPath,
   PluginUi,
   ReleaseListQuery,
   ReleaseListResult,
@@ -64,6 +65,8 @@ const api: BridgeApi = {
 
   // Plugin system
   getPluginUi: (): Promise<PluginUi> => ipcRenderer.invoke('plugins:get-ui'),
+  getPluginRendererPaths: (): Promise<PluginRendererPath[]> =>
+    ipcRenderer.invoke('plugins:get-renderer-paths'),
   invokePlugin: (channel: string, payload: unknown): Promise<unknown> =>
     ipcRenderer.invoke(channel, payload),
   installPlugin: (url: string): Promise<string> => ipcRenderer.invoke('plugins:install', url),

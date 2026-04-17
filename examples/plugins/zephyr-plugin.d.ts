@@ -22,20 +22,6 @@ export interface PluginButtonSpec {
   icon?: string;
 }
 
-export interface PluginSectionSpec {
-  /** Heading shown above the section in DetailPage. */
-  title: string;
-  /** IPC channel (without `plugin:` prefix) that provides the section content. */
-  action: string;
-}
-
-export interface PluginCardMenuItemSpec {
-  /** Label shown in the context menu. */
-  label: string;
-  /** IPC channel (without `plugin:` prefix) triggered on click. */
-  action: string;
-}
-
 export interface PluginSettingSpec {
   /** Unique key used to store/retrieve this value. */
   key: string;
@@ -48,10 +34,6 @@ export interface PluginSettingSpec {
 export interface ZephyrUiApi {
   /** Add a button to the DetailPage top bar. Appears next to "View Release". */
   addDetailButton(spec: PluginButtonSpec): void;
-  /** Add a section below the torrent results in DetailPage. */
-  addDetailSection(spec: PluginSectionSpec): void;
-  /** Add an item to the ReleaseCard context menu (rendered in a future release). */
-  addCardMenuItem(spec: PluginCardMenuItemSpec): void;
 }
 
 export interface ZephyrIpcApi {
@@ -60,7 +42,7 @@ export interface ZephyrIpcApi {
    * The channel must NOT include the `plugin:` prefix — it is added automatically.
    * The full registered channel becomes `plugin:<channel>`.
    *
-   * The `payload` argument is whatever the button/section action passes —
+   * The `payload` argument is whatever the button action passes —
    * typically the full `Release` object from Zephyr's shared types.
    */
   handle(channel: string, handler: (payload: unknown) => unknown | Promise<unknown>): void;
@@ -75,16 +57,52 @@ export interface ZephyrSettingsApi {
   set(key: string, value: unknown): Promise<void>;
 }
 
+// <generated>
+// Auto-generated from src/shared/types.ts — do not edit manually.
+// Run `npm run generate:plugin-types` to update.
+export type DownloadStatus = 'queued' | 'downloading' | 'seeding' | 'paused' | 'error';
+
+export type ScanStatus = 'pending' | 'scanning' | 'clean' | 'threat' | 'error';
+
+export type RdPhase =
+  | 'fetching-metadata'
+  | 'queued-remote'
+  | 'rd-downloading'
+  | 'rd-processing'
+  | 'transferring';
+
 export interface DownloadJob {
   infoHash: string;
   name: string;
   magnetUri: string;
   savePath: string;
-  progress: number;
-  status: 'queued' | 'downloading' | 'seeding' | 'paused' | 'error';
-  totalSize: number;
-  scanStatus?: 'scanning' | 'clean' | 'threat' | 'error';
+  progress: number; // 0–1
+  downloadSpeed: number; // bytes/s
+  uploadSpeed: number; // bytes/s
+  numPeers: number;
+  status: DownloadStatus;
+  totalSize: number; // bytes
+  downloaded: number; // bytes
+  addedAt: number; // epoch ms
+  origin?: 'webtorrent' | 'real-debrid';
+  scanStatus?: ScanStatus;
+  /** Human-readable scan result (e.g. threat name, VT detection ratio). */
+  scanInfo?: string;
+  error?: string;
+  /** Real-Debrid pipeline phase (only set when origin === 'real-debrid'). */
+  rdPhase?: RdPhase;
+  /** Raw RD status string ("magnet_conversion", "downloading", …) for diagnostics. */
+  rdRawStatus?: string;
+  /** Non-fatal hint shown under a job (e.g. "No seeders yet — may be unavailable"). */
+  rdMessage?: string;
+  /**
+   * Absolute path to reveal when the user clicks the folder icon on a complete
+   * job. Either a single file (highlighted in its folder) or a directory. Set
+   * by the origin on completion — renderer should treat as opaque.
+   */
+  revealPath?: string;
 }
+// </generated>
 
 export interface ZephyrHooksApi {
   /** Called once after all plugins have finished loading. */

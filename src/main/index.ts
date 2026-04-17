@@ -228,6 +228,7 @@ function registerIpc(): void {
   );
 
   ipcMain.handle('plugins:get-ui', () => pluginHost.getUi());
+  ipcMain.handle('plugins:get-renderer-paths', () => pluginHost.getRendererPaths());
   ipcMain.handle('plugins:list', () => pluginHost.getLoadedPlugins());
   ipcMain.handle('plugins:install', async (_event, url: string) => pluginHost.installFromUrl(url));
 }

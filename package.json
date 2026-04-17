@@ -13,6 +13,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "generate:plugin-types": "node scripts/generate-plugin-types.mjs",
     "lint": "biome check src/",
     "format": "biome check --write src/",
     "package": "npm run build && electron-builder --dir",
