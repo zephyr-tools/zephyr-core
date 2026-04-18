@@ -272,7 +272,7 @@ export class PluginHost {
     return pluginId;
   }
 
-  /** Delete a plugin's directory. Running IPC handlers stay live until restart. */
+  /** Delete a plugin's directory and prune its in-memory state. IPC + hook handlers stay live until restart. */
   async removePlugin(pluginId: string): Promise<void> {
     if (!VALID_PLUGIN_ID.test(pluginId)) throw new Error('Invalid plugin id');
     const pluginDir = path.join(this.pluginsDir, pluginId);
@@ -286,6 +286,13 @@ export class PluginHost {
       throw new Error(`Plugin "${pluginId}" is not installed`);
     }
     await fs.rm(pluginDir, { recursive: true, force: true });
+
+    this.loadedPlugins = this.loadedPlugins.filter((p) => p.id !== pluginId);
+    this.ui.detailButtons = this.ui.detailButtons.filter((b) => b.pluginId !== pluginId);
+    this.ui.settings = this.ui.settings.filter((s) => s.pluginId !== pluginId);
+    this.rendererUrls.delete(pluginId);
+    this.settingsCache.delete(pluginId);
+    this.settingChangeHandlers.delete(pluginId);
   }
 
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
@@ -388,8 +395,7 @@ export class PluginHost {
     return {
       ui: {
         addDetailButton(spec) {
-          // `action` is the bare channel; preload prefixes `plugin:` on invoke.
-          host.ui.detailButtons.push({ ...spec });
+          host.ui.detailButtons.push({ ...spec, pluginId });
         },
       },
       ipc: {

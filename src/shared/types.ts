@@ -188,6 +188,8 @@ export interface PluginButtonSpec {
    */
   action: string;
   icon?: string;
+  /** Stamped by `PluginHost`; used to prune buttons on plugin removal. */
+  pluginId: string;
 }
 
 export type PluginSettingType = 'text' | 'password' | 'toggle' | 'number' | 'select';
