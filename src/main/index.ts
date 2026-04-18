@@ -302,8 +302,57 @@ function registerIpc(): void {
   });
 
   // Library
+  ipcMain.handle('library:get', (_event, id: string): LibraryEntry | null =>
+    libraryService.getEntry(id) ?? null,
+  );
   ipcMain.handle('library:list', (_event, page: number, perPage: number) =>
     libraryService.list(page, perPage),
+  );
+  ipcMain.handle(
+    'library:add-manual',
+    async (
+      _event,
+      id: string,
+      info: LibraryReleaseInfo,
+    ): Promise<{ located: boolean; alreadyInLibrary: boolean }> => {
+      const alreadyInLibrary = !!libraryService.getEntry(id);
+      if (!alreadyInLibrary) {
+        await libraryService.add({
+          id,
+          releaseName: info.releaseName,
+          releaseTitle: info.releaseTitle,
+          team: info.team,
+          category: info.category,
+          artworkTitle: info.releaseTitle,
+          addedAt: Date.now(),
+          savePath: '',
+          totalSize: 0,
+          installStatus: 'unlocated',
+        });
+      }
+      const owner = mainWindow ?? undefined;
+      const result = await (owner
+        ? dialog.showOpenDialog(owner, {
+            title: 'Locate game executable',
+            filters: [{ name: 'Executables', extensions: ['exe'] }],
+            properties: ['openFile'],
+          })
+        : dialog.showOpenDialog({
+            title: 'Locate game executable',
+            filters: [{ name: 'Executables', extensions: ['exe'] }],
+            properties: ['openFile'],
+          }));
+      if (result.canceled || result.filePaths.length === 0) {
+        return { located: false, alreadyInLibrary };
+      }
+      const exePath = result.filePaths[0]!;
+      await libraryService.update(id, {
+        executablePath: exePath,
+        savePath: path.dirname(exePath),
+        installStatus: 'verified',
+      });
+      return { located: true, alreadyInLibrary };
+    },
   );
   ipcMain.handle('library:update', async (_event, id: string, patch: Partial<LibraryEntry>) =>
     libraryService.update(id, patch),

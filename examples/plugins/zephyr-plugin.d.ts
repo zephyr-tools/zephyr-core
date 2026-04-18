@@ -207,6 +207,14 @@ export interface ZephyrHooksApi {
    * Use `entry.executablePath` to launch or integrate with the installed game.
    */
   onLibraryEntryComplete(handler: (entry: LibraryEntry) => void): void;
+  /**
+   * Called when the user uninstalls this plugin, before its files are deleted.
+   * Use this to tear down anything the plugin installed outside its own directory:
+   * scheduled tasks, AppX/MSIX packages, registry entries, external data caches.
+   * The handler is awaited with a 60s timeout; exceptions are logged but do not
+   * block removal.
+   */
+  onUninstall(handler: () => void | Promise<void>): void;
 }
 
 export interface ZephyrLibraryApi {
@@ -220,6 +228,10 @@ export interface ZephyrLibraryApi {
    * 100 entries per page.
    */
   list(page?: number, perPage?: number): LibraryListResult;
+  /** Add a new entry manually. No-op if an entry with that id already exists. */
+  add(entry: LibraryEntry): Promise<void>;
+  /** Patch an existing entry. No-op if the id is not in the library. */
+  update(id: string, patch: Partial<LibraryEntry>): Promise<void>;
 }
 
 export interface AppSettings {

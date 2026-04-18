@@ -2,6 +2,7 @@ import type {
   GameDetails,
   GameTrailer,
   GroupPrerequisites,
+  LibraryEntry,
   LibraryReleaseInfo,
   Release,
   TorrentResult,
@@ -209,6 +210,14 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
     gcTime: 7 * 24 * 60 * 60_000,
     retry: 0,
   });
+  const libraryQuery = useQuery<LibraryEntry | null>({
+    queryKey: ['library-entry', release.id],
+    queryFn: () => window.api.getLibraryEntry(release.id),
+    staleTime: 10_000,
+  });
+  const libraryEntry = libraryQuery.data ?? null;
+  const [addingToLibrary, setAddingToLibrary] = useState(false);
+
   const [addedHashes, setAddedHashes] = useState<Set<string>>(new Set());
   const releaseInfo: LibraryReleaseInfo = {
     releaseId: release.id,
@@ -282,6 +291,41 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
         </button>
 
         <span className="flex-1 truncate text-sm font-medium text-zinc-100">{release.title}</span>
+
+        {libraryEntry?.installStatus === 'verified' ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800/60 px-3 py-1.5 text-xs font-medium text-zinc-500 select-none">
+            <HardDrive className="h-3.5 w-3.5" />
+            In Library
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={addingToLibrary}
+            onClick={async () => {
+              setAddingToLibrary(true);
+              try {
+                await window.api.addLibraryEntryManual(release.id, {
+                  releaseId: release.id,
+                  releaseName: release.name,
+                  releaseTitle: release.title,
+                  team: release.team,
+                  category: release.category,
+                });
+                await libraryQuery.refetch();
+              } finally {
+                setAddingToLibrary(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-zinc-100 disabled:cursor-wait disabled:opacity-60"
+          >
+            {addingToLibrary ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <HardDrive className="h-3.5 w-3.5" />
+            )}
+            {libraryEntry ? 'Locate Executable' : 'Add to Library'}
+          </button>
+        )}
 
         {release.url && (
           <button

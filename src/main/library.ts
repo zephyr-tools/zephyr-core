@@ -79,6 +79,13 @@ export class LibraryService {
     return updated;
   }
 
+  /** Add a new entry. No-op if an entry with the same id already exists. */
+  async add(entry: LibraryEntry): Promise<void> {
+    if (this.entries.has(entry.id)) return;
+    this.entries.set(entry.id, entry);
+    await this.save();
+  }
+
   async update(id: string, patch: Partial<LibraryEntry>): Promise<void> {
     const existing = this.entries.get(id);
     if (!existing) return;

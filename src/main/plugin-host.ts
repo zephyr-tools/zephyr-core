@@ -28,10 +28,12 @@ interface PluginSettingRegisterSpec {
   hint?: string;
 }
 
-/** Minimal read-only library accessor passed into the plugin API. */
+/** Minimal library accessor passed into the plugin API. */
 interface LibraryAccessor {
   list(page?: number, perPage?: number): LibraryListResult;
   getEntry(id: string): LibraryEntry | undefined;
+  add(entry: LibraryEntry): Promise<void>;
+  update(id: string, patch: Partial<LibraryEntry>): Promise<void>;
 }
 
 /** Synchronous snapshot of the app's persisted settings. */
@@ -63,13 +65,24 @@ interface ZephyrAPI {
      * started with release metadata attached.
      */
     onLibraryEntryComplete(handler: (entry: LibraryEntry) => void): void;
+    /**
+     * Called when the user uninstalls this plugin, before its files are deleted.
+     * Use this to tear down anything the plugin installed outside its own dir —
+     * scheduled tasks, AppX packages, registry entries, cached data. Awaited with
+     * a 60s budget; exceptions are logged but don't block removal.
+     */
+    onUninstall(handler: () => void | Promise<void>): void;
   };
-  /** Read-only access to the user's game library. */
+  /** Access to the user's game library. */
   library: {
     /** Retrieve a single entry by its infoHash id, or `undefined` if not in the library. */
     get(id: string): LibraryEntry | undefined;
     /** List all library entries, newest first. Paginated — defaults to page 1, 100 per page. */
     list(page?: number, perPage?: number): LibraryListResult;
+    /** Add a new entry. No-op if an entry with that id already exists. */
+    add(entry: LibraryEntry): Promise<void>;
+    /** Patch an existing entry. No-op if the id is not in the library. */
+    update(id: string, patch: Partial<LibraryEntry>): Promise<void>;
   };
   /** Read-only access to the app's persisted settings (API keys, etc.). */
   app: {
@@ -102,6 +115,7 @@ export class PluginHost {
   private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
   private libraryEntryCompleteHandlers: Array<(entry: LibraryEntry) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
+  private uninstallHandlers = new Map<string, Array<() => void | Promise<void>>>();
   private loadedPlugins: LoadedPlugin[] = [];
   private rendererUrls = new Map<string, string>(); // pluginId -> file:// URL
   private libraryAccessor: LibraryAccessor | null = null;
@@ -321,6 +335,24 @@ export class PluginHost {
     } catch {
       throw new Error(`Plugin "${pluginId}" is not installed`);
     }
+
+    const handlers = this.uninstallHandlers.get(pluginId) ?? [];
+    for (const h of handlers) {
+      try {
+        await Promise.race([
+          Promise.resolve(h()),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('onUninstall handler timed out after 60s')), 60_000),
+          ),
+        ]);
+      } catch (err) {
+        console.error(
+          `[Plugin:${pluginId}] onUninstall handler threw:`,
+          (err as Error).message,
+        );
+      }
+    }
+
     await fs.rm(pluginDir, { recursive: true, force: true });
 
     this.loadedPlugins = this.loadedPlugins.filter((p) => p.id !== pluginId);
@@ -329,6 +361,7 @@ export class PluginHost {
     this.rendererUrls.delete(pluginId);
     this.settingsCache.delete(pluginId);
     this.settingChangeHandlers.delete(pluginId);
+    this.uninstallHandlers.delete(pluginId);
   }
 
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
@@ -502,6 +535,11 @@ export class PluginHost {
         onLibraryEntryComplete(handler) {
           host.libraryEntryCompleteHandlers.push(handler);
         },
+        onUninstall(handler) {
+          const existing = host.uninstallHandlers.get(pluginId) ?? [];
+          existing.push(handler);
+          host.uninstallHandlers.set(pluginId, existing);
+        },
       },
       library: {
         get(id) {
@@ -516,6 +554,12 @@ export class PluginHost {
               perPage: perPage ?? 100,
             }
           );
+        },
+        add(entry) {
+          return host.libraryAccessor?.add(entry) ?? Promise.resolve();
+        },
+        update(id, patch) {
+          return host.libraryAccessor?.update(id, patch) ?? Promise.resolve();
         },
       },
       app: {

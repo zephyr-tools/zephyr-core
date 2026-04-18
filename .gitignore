@@ -8,3 +8,6 @@ examples/dist
 .env
 .env.local
 .claude/settings.local.json
+
+#Temporary
+examples/plugins/achievement-watcher

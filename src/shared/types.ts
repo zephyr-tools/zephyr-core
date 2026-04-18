@@ -317,6 +317,12 @@ export interface BridgeApi {
   restartApp(): Promise<void>;
 
   // Library
+  getLibraryEntry(id: string): Promise<LibraryEntry | null>;
+  /** Create a library entry for a manually-installed game and open a file picker to locate the exe. */
+  addLibraryEntryManual(
+    id: string,
+    info: LibraryReleaseInfo,
+  ): Promise<{ located: boolean; alreadyInLibrary: boolean }>;
   listLibrary(page: number, perPage: number): Promise<LibraryListResult>;
   updateLibraryEntry(id: string, patch: Partial<LibraryEntry>): Promise<void>;
   removeLibraryEntry(id: string): Promise<void>;

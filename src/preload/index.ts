@@ -90,6 +90,13 @@ const api: BridgeApi = {
   restartApp: (): Promise<void> => ipcRenderer.invoke('app:restart'),
 
   // Library
+  getLibraryEntry: (id: string): Promise<LibraryEntry | null> =>
+    ipcRenderer.invoke('library:get', id),
+  addLibraryEntryManual: (
+    id: string,
+    info: LibraryReleaseInfo,
+  ): Promise<{ located: boolean; alreadyInLibrary: boolean }> =>
+    ipcRenderer.invoke('library:add-manual', id, info),
   listLibrary: (page: number, perPage: number) =>
     ipcRenderer.invoke('library:list', page, perPage),
   updateLibraryEntry: (id: string, patch: Partial<LibraryEntry>) =>

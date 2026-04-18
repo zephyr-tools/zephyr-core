@@ -1,21 +1,43 @@
 // @ts-check
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import net from 'node:net';
+import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { app, Notification } from 'electron';
+
+const execFileAsync = promisify(execFile);
 
 /**
+ * execFile wrapper that hides the transient console window Electron would
+ * otherwise pop up for every spawned PowerShell/where/etc. Without this, users
+ * see a black flash with any stderr output rendered in red.
+ * @param {string} file
+ * @param {string[]} args
+ */
+function exec(file, args) {
+  return execFileAsync(file, args, { windowsHide: true });
+}
+
+/**
+ * @typedef {{ gameId: string; title: string; total: number; earned: number }} GameSummary
+ * @typedef {{ infoHash: string; title: string; appId: number | null; total: number; earned: number; watching: boolean; lastChecked: number | null; detectionNote: string | null; unlocks?: any[] }} GamesCache
  * @typedef {{ name: string; displayName: string; description: string; icon?: string; iconGray?: string; hidden: boolean }} SchemaDef
- * @typedef {{ id: string; displayName: string; description: string; iconUrl: string | null; earned: boolean; unlockedAt: number | null }} AchievementUnlock
- * @typedef {{ infoHash: string; title: string; savePath: string; executablePath?: string; appId: number | null; schema: SchemaDef[]; unlocks: AchievementUnlock[]; achievementFiles: string[]; watching: boolean; lastChecked: number | null; detectionNote: string | null }} WatchedGame
- * @typedef {{ gameTitle: string; appId: number | null; achievementId: string; achievementName: string; achievementDesc: string; iconUrl: string | null; unlockedAt: number | null }} AchievementNotification
  */
 
 const TAG = '[achievement-watcher]';
+const __pluginDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('../zephyr-plugin').ZephyrPlugin} */
 export default {
   name: 'Achievement Watcher',
   version: '1.0.0',
   setup(zephyr) {
+    const dataDir = path.join(app.getPath('userData'), 'achievement-watcher');
+
     zephyr.settings.register({
       key: 'steamApiKey',
       label: 'Steam API Key',
@@ -23,58 +45,223 @@ export default {
       hint: 'Required to fetch achievement names and icons. Get yours at steamcommunity.com/dev/apikey',
     });
 
-    /** @type {Map<string, WatchedGame>} */
-    const games = new Map();
+    /** @type {Map<string, GamesCache>} */
+    const gamesCache = new Map();
 
-    /** @type {AchievementNotification[]} */
-    const pendingNotifications = [];
+    /** @type {any} */
+    let wsClient = null;
+    let wsReady = false;
 
-    /** @type {Map<string, import('node:fs').FSWatcher[]>} */
-    const activeWatchers = new Map();
+    // ── Config management ────────────────────────────────────────────────────
 
-    // ── IPC handlers ────────────────────────────────────────────────────────
+    /** @returns {Promise<{ token: string; port: number }>} */
+    async function readOrCreateConfig() {
+      await fs.mkdir(dataDir, { recursive: true });
+      const configPath = path.join(dataDir, 'config.json');
+      try {
+        const raw = await fs.readFile(configPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.token === 'string' && typeof parsed.port === 'number') {
+          return parsed;
+        }
+      } catch {}
+      const config = { token: randomUUID(), port: 37265 };
+      await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+      console.log(`${TAG} Created new config.json with auth token`);
+      return config;
+    }
+
+    // ── WebSocket client (connects to the service) ───────────────────────────
+
+    /** @param {{ token: string; port: number }} config */
+    function connectToService(config) {
+      const _require = createRequire(import.meta.url);
+      // Pass absolute path so Node resolves from the bundled service/node_modules
+      /** @type {any} */
+      const wsModule = _require(path.join(__pluginDir, 'service', 'node_modules', 'ws'));
+      const WsClass = wsModule.WebSocket ?? wsModule.default ?? wsModule;
+
+      wsReady = false;
+
+      function tryConnect() {
+        if (wsClient) {
+          try { wsClient.close(); } catch {}
+          wsClient = null;
+        }
+
+        const ws = new WsClass(`ws://127.0.0.1:${config.port}`);
+        wsClient = ws;
+
+        ws.on('open', () => {
+          console.log(`${TAG} Connected to achievement service`);
+          ws.send(JSON.stringify({ type: 'client:identify', role: 'zephyr', token: config.token }));
+          wsReady = true;
+        });
+
+        ws.on('message', (/** @type {any} */ data) => {
+          let msg;
+          try {
+            msg = JSON.parse(data.toString());
+          } catch {
+            return;
+          }
+          handleServiceMessage(msg);
+        });
+
+        ws.on('close', () => {
+          console.log(`${TAG} Service connection closed — reconnecting in 5s`);
+          wsReady = false;
+          wsClient = null;
+          setTimeout(tryConnect, 5000);
+        });
+
+        ws.on('error', (/** @type {Error} */ err) => {
+          // Error is followed by close, reconnect handled there
+          console.warn(`${TAG} WS client error:`, err.message);
+        });
+      }
+
+      tryConnect();
+    }
+
+    /** @param {any} msg */
+    function handleServiceMessage(msg) {
+      switch (msg.type) {
+        case 'state:sync': {
+          // Populate gamesCache from summaries
+          if (Array.isArray(msg.games)) {
+            for (const summary of msg.games) {
+              const existing = gamesCache.get(summary.gameId);
+              gamesCache.set(summary.gameId, {
+                infoHash: summary.gameId,
+                title: summary.title,
+                appId: existing?.appId ?? null,
+                total: summary.total,
+                earned: summary.earned,
+                watching: true,
+                lastChecked: existing?.lastChecked ?? null,
+                detectionNote: existing?.detectionNote ?? null,
+                unlocks: Array.isArray(summary.achievements) ? summary.achievements : existing?.unlocks,
+              });
+            }
+          }
+          break;
+        }
+
+        case 'achievement:unlock': {
+          showSystemNotification({
+            achievementName: msg.achievementName || msg.achievementId,
+            achievementDesc: msg.achievementDesc,
+            gameTitle: msg.gameTitle,
+          });
+          const game = gamesCache.get(msg.gameId);
+          if (game) {
+            game.lastChecked = Date.now();
+            if (Array.isArray(game.unlocks)) {
+              const ach = game.unlocks.find((u) => u.id === msg.achievementId);
+              if (ach && !ach.earned) {
+                ach.earned = true;
+                ach.unlockedAt = Math.floor(msg.unlockedAt / 1000);
+                game.earned = game.unlocks.filter((u) => u.earned).length;
+              } else if (!ach) {
+                game.earned = (game.earned ?? 0) + 1;
+              }
+            } else {
+              game.earned = (game.earned ?? 0) + 1;
+            }
+          }
+          console.log(`${TAG} achievement:unlock "${msg.achievementName}" in "${msg.gameTitle}"`);
+          break;
+        }
+
+        case 'schema:update': {
+          const game = gamesCache.get(msg.gameId);
+          if (game) {
+            game.total = msg.total;
+            game.earned = msg.earned;
+            if (Array.isArray(msg.achievements)) {
+              game.unlocks = msg.achievements;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    /**
+     * Fire a Windows system toast (Action Center / bottom-right of screen).
+     * Best-effort — silently skipped when notifications aren't supported.
+     * @param {{ achievementName: string; achievementDesc?: string | null; gameTitle?: string | null }} item
+     */
+    function showSystemNotification(item) {
+      try {
+        if (!Notification.isSupported()) return;
+        const title = `Achievement Unlocked — ${item.achievementName}`;
+        const bodyParts = [];
+        if (item.gameTitle) bodyParts.push(item.gameTitle);
+        if (item.achievementDesc) bodyParts.push(item.achievementDesc);
+        new Notification({
+          title,
+          body: bodyParts.join(' · '),
+          silent: false,
+        }).show();
+      } catch (err) {
+        console.error(`${TAG} system notification failed:`, /** @type {Error} */ (err).message);
+      }
+    }
+
+    /** @param {object} msg */
+    function sendToService(msg) {
+      if (wsClient && wsReady) {
+        try {
+          wsClient.send(JSON.stringify(msg));
+        } catch (err) {
+          console.warn(`${TAG} sendToService failed:`, /** @type {Error} */ (err).message);
+        }
+      }
+    }
+
+    // ── IPC handlers ─────────────────────────────────────────────────────────
 
     zephyr.ipc.handle('achievement-watcher:get-all', () =>
-      [...games.values()].map((g) => ({
+      [...gamesCache.values()].map((g) => ({
         infoHash: g.infoHash,
         title: g.title,
         appId: g.appId,
-        total: g.schema.length,
-        earned: g.unlocks.filter((u) => u.earned).length,
-        unlocks: g.unlocks,
+        total: g.total,
+        earned: g.earned,
         watching: g.watching,
         lastChecked: g.lastChecked,
         detectionNote: g.detectionNote,
+        unlocks: g.unlocks ?? [],
       })),
     );
 
     zephyr.ipc.handle('achievement-watcher:get-game', (payload) => {
       const p = asRecord(payload);
-      const game = typeof p.infoHash === 'string' ? games.get(p.infoHash) : undefined;
-      if (!game) return null;
-      return {
-        infoHash: game.infoHash,
-        title: game.title,
-        appId: game.appId,
-        schema: game.schema,
-        unlocks: game.unlocks,
-        watching: game.watching,
-        lastChecked: game.lastChecked,
-        detectionNote: game.detectionNote,
-      };
+      const game = typeof p.infoHash === 'string' ? gamesCache.get(p.infoHash) : undefined;
+      return game ?? null;
     });
 
-    zephyr.ipc.handle('achievement-watcher:poll-notifications', () =>
-      pendingNotifications.splice(0),
-    );
+    zephyr.ipc.handle('achievement-watcher:test-notification', () => {
+      // Route the test through the service so it flows through the exact
+      // same pipeline as a real unlock:
+      //   service broadcasts achievement:unlock → plugin fires system
+      //   toast + in-app card; widget renders its own DOM toast if pinned.
+      // Silent no-op if the WS isn't connected (in which case the user
+      // already sees the "Service installed but not running" banner).
+      sendToService({ type: 'test:notification' });
+      return { ok: !!wsReady };
+    });
 
-    zephyr.ipc.handle('achievement-watcher:rescan', async (payload) => {
+    zephyr.ipc.handle('achievement-watcher:rescan', (payload) => {
       const p = asRecord(payload);
-      const game = typeof p.infoHash === 'string' ? games.get(p.infoHash) : undefined;
-      if (!game) return { ok: false, error: 'Game not tracked' };
-      console.log(`${TAG} Manual rescan requested for "${game.title}"`);
-      await rescanGame(game);
-      return { ok: true };
+      if (typeof p.infoHash === 'string') {
+        sendToService({ type: 'state:request' });
+        console.log(`${TAG} Manual rescan: sent state:request to service`);
+        return { ok: true };
+      }
+      return { ok: false, error: 'Missing infoHash' };
     });
 
     zephyr.ipc.handle('achievement-watcher:watch-entry', async (payload) => {
@@ -82,176 +269,341 @@ export default {
       if (typeof p.infoHash !== 'string') return { ok: false, error: 'Missing infoHash' };
       const entry = zephyr.library.get(p.infoHash);
       if (!entry) return { ok: false, error: 'Library entry not found' };
-      if (!games.has(entry.id)) await setupGame(entry);
-      return { ok: true, watching: games.get(entry.id)?.watching ?? false };
+      await sendGameRegister(entry);
+      return { ok: true, watching: gamesCache.has(entry.id) };
+    });
+
+    zephyr.ipc.handle('achievement-watcher:get-status', async () => {
+      let serviceInstalled = false;
+      let widgetInstalled = false;
+
+      try {
+        const { stdout } = await exec('powershell.exe', [
+          '-NoProfile', '-Command',
+          'if (Get-ScheduledTask -TaskName "ZephyrAchievementWatcher" -ErrorAction SilentlyContinue) { Write-Output "INSTALLED" }',
+        ]);
+        serviceInstalled = stdout.includes('INSTALLED');
+      } catch {}
+
+      try {
+        const { stdout } = await exec('powershell.exe', [
+          '-NoProfile', '-Command',
+          'Get-AppxPackage -Name "ZephyrAchievementWatcher" | Select-Object -ExpandProperty Name',
+        ]);
+        widgetInstalled = stdout.trim().length > 0;
+      } catch {}
+
+      // The scheduled task action is a powershell launcher that spawns node and
+      // exits — so Get-ScheduledTask's State is always "Ready" even when the
+      // service is actively running. The reliable signal is whether the WS
+      // client is connected (or, if not yet attempted, whether the port is held).
+      const serviceRunning = wsClient != null && wsReady;
+
+      return {
+        serviceInstalled,
+        serviceRunning,
+        widgetInstalled,
+        connected: wsClient != null && wsReady,
+      };
+    });
+
+    zephyr.ipc.handle('achievement-watcher:start-service', async () => {
+      try {
+        const config = await readOrCreateConfig();
+        await exec('powershell.exe', [
+          '-NoProfile', '-Command',
+          'Start-ScheduledTask -TaskName "ZephyrAchievementWatcher"',
+        ]);
+        const ready = await waitForServicePort(config.port, 10_000);
+        if (!ready) {
+          return {
+            ok: false,
+            error: `Task started but nothing bound 127.0.0.1:${config.port} within 10s — check Task Scheduler's Last Run Result for ZephyrAchievementWatcher.`,
+          };
+        }
+        if (!wsClient || !wsReady) connectToService(config);
+        return { ok: true };
+      } catch (err) {
+        console.error(`${TAG} start-service failed:`, /** @type {Error} */ (err).message);
+        return { ok: false, error: /** @type {Error} */ (err).message };
+      }
+    });
+
+    zephyr.ipc.handle('achievement-watcher:install-service', async () => {
+      try {
+        await fs.mkdir(dataDir, { recursive: true });
+        const config = await readOrCreateConfig();
+        const servicePath = path.join(__pluginDir, 'service', 'index.js');
+
+        // Find node.exe on PATH — Electron's bundled node can't run standalone.
+        let nodeExe = 'node';
+        try {
+          const { stdout } = await exec('where.exe', ['node']);
+          nodeExe = stdout.trim().split(/\r?\n/)[0]?.trim() ?? 'node';
+        } catch {}
+
+        // Task Scheduler launches via a VBS launcher (wscript.exe //B //NoLogo):
+        //   Execute:  wscript.exe
+        //   Argument: //B //NoLogo "<launcherPath>"
+        //
+        // The VBS runs node.exe with WshShell.Run window-style 0 (hidden) and
+        // bWaitOnReturn=True so wscript.exe stays alive while the service runs.
+        // Task Scheduler can then detect exit/failure and apply the restart policy.
+        // Using wscript.exe avoids the console window that node.exe (a console
+        // subsystem app) would otherwise get when Task Scheduler spawns it in the
+        // interactive session — that window would stay open for the life of the
+        // service, which is what the user sees as "PowerShell staying open".
+        //
+        // Task settings:
+        //   AtLogon trigger                 → auto-starts at every sign-in
+        //   ExecutionTimeLimit 0            → never time-sliced out
+        //   RestartCount 3 / 1 min          → respawn if node exits non-zero
+        //   DontStopIfGoingOnBatteries etc. → keep running on laptops
+        //   MultipleInstances IgnoreNew     → avoid double-bind on port 37265
+        const launcherPath = path.join(dataDir, 'launch-service.vbs');
+        const safeNode = nodeExe.replace(/"/g, '""');
+        const safeSvc = servicePath.replace(/"/g, '""');
+        const safeData = dataDir.replace(/"/g, '""');
+        const vbsContent = [
+          'Set WshShell = CreateObject("WScript.Shell")',
+          // Window style 0 = hidden; True = wait for node to exit so Task Scheduler
+          // tracks the real process lifetime and can restart on failure.
+          `WshShell.Run Chr(34) & "${safeNode}" & Chr(34) & " " & Chr(34) & "${safeSvc}" & Chr(34) & " " & Chr(34) & "${safeData}" & Chr(34), 0, True`,
+        ].join('\r\n');
+        await fs.writeFile(launcherPath, vbsContent, 'utf8');
+
+        const wscriptArg = `//B //NoLogo "${launcherPath}"`;
+        const registerCmd = [
+          '$n = "ZephyrAchievementWatcher"',
+          `$exe = 'wscript.exe'`,
+          `$arg = '${wscriptArg.replace(/'/g, "''")}'`,
+          '$a = New-ScheduledTaskAction -Execute $exe -Argument $arg',
+          '$t = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME',
+          '$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable',
+          '$p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited',
+          'Register-ScheduledTask -TaskName $n -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null',
+          'Start-ScheduledTask -TaskName $n',
+        ].join('; ');
+
+        // Clean up any legacy PS launcher from older installs so config.json is
+        // the only source of truth for the token going forward.
+        await fs
+          .rm(path.join(dataDir, 'service-run.ps1'), { force: true })
+          .catch(() => undefined);
+
+        await exec('powershell.exe', ['-NoProfile', '-Command', registerCmd]);
+
+        // Wait up to 10s for the service to actually come up (port 37265 bound).
+        // Task scheduler returns immediately after spawning the launcher, so we
+        // need to verify the node process is alive and listening — otherwise
+        // the UI would claim "running" while the WS connect is about to fail.
+        const ready = await waitForServicePort(config.port, 10_000);
+        if (!ready) {
+          return {
+            ok: false,
+            error: `Service installed but did not bind 127.0.0.1:${config.port} within 10s — check Task Scheduler's "Last Run Result" for ZephyrAchievementWatcher.`,
+          };
+        }
+
+        connectToService(config);
+        return { ok: true };
+      } catch (err) {
+        console.error(`${TAG} install-service failed:`, /** @type {Error} */ (err).message);
+        return { ok: false, error: /** @type {Error} */ (err).message };
+      }
+    });
+
+    zephyr.ipc.handle('achievement-watcher:install-widget', async () => {
+      try {
+        const cerPath = path.join(__pluginDir, 'widget', 'AchievementWidget.cer');
+        // Packaged: widget/AchievementWidget.msix — dev fallback: build output
+        let appxPath = path.join(__pluginDir, 'widget', 'AchievementWidget.msix');
+        if (!await fs.access(appxPath).then(() => true).catch(() => false)) {
+          const buildOut = path.join(__pluginDir, 'widget', 'AchievementWidget', 'bin');
+          const found = await findMsix(buildOut);
+          if (found) appxPath = found;
+        }
+        const configPath = path.join(dataDir, 'config.json');
+
+        // Elevated script:
+        // 1. Import cert → Trusted Root (needs admin)
+        // 2. Install MSIX via Add-AppxPackage
+        // 3. Query real PFN → CheckNetIsolation loopback exemption
+        // 4. Copy config.json to widget's LocalState
+        const resultPath = path.join(app.getPath('temp'), `aw-widget-result-${Date.now()}.txt`);
+        const ps1Lines = [
+          `$result = '${resultPath.replace(/'/g, "''")}'`,
+          'try {',
+          '  $ErrorActionPreference = "Stop"',
+          `  Import-Certificate -FilePath '${cerPath.replace(/'/g, "''")}' -CertStoreLocation Cert:\\LocalMachine\\Root | Out-Null`,
+          `  Add-AppxPackage -Path '${appxPath.replace(/'/g, "''")}'`,
+          '  $pfn = (Get-AppxPackage -Name "ZephyrAchievementWatcher").PackageFamilyName',
+          '  if ($pfn) {',
+          '    CheckNetIsolation.exe LoopbackExempt -a -n="$pfn" | Out-Null',
+          '    $ls = "$env:LOCALAPPDATA\\Packages\\$pfn\\LocalState"',
+          '    New-Item -ItemType Directory -Force -Path $ls | Out-Null',
+          `    Copy-Item -Path '${configPath.replace(/'/g, "''")}' -Destination "$ls\\config.json" -Force`,
+          '  }',
+          '  Set-Content -Path $result -Value "OK"',
+          '} catch {',
+          '  Set-Content -Path $result -Value $_.Exception.Message',
+          '}',
+        ].join('\r\n');
+
+        const tmp = path.join(app.getPath('temp'), `aw-widget-${Date.now()}.ps1`);
+        await fs.writeFile(tmp, ps1Lines, 'utf8');
+        try {
+          // Use array form for -ArgumentList to avoid path-quoting issues
+          await exec('powershell.exe', [
+            '-NoProfile', '-Command',
+            `Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${tmp.replace(/'/g, "''")}')`,
+          ]);
+        } finally {
+          await fs.rm(tmp, { force: true }).catch(() => {});
+        }
+
+        const result = await fs.readFile(resultPath, 'utf8').catch(() => 'No output from install script');
+        await fs.rm(resultPath, { force: true }).catch(() => {});
+        if (result.trim() !== 'OK') {
+          console.error(`${TAG} install-widget elevated script failed:`, result.trim());
+          return { ok: false, error: result.trim() };
+        }
+
+        console.log(`${TAG} Widget installed successfully`);
+        return { ok: true };
+      } catch (err) {
+        console.error(`${TAG} install-widget failed:`, /** @type {Error} */ (err).message);
+        return { ok: false, error: /** @type {Error} */ (err).message };
+      }
     });
 
     // ── Hooks ────────────────────────────────────────────────────────────────
 
-    zephyr.hooks.onLibraryEntryComplete(async (entry) => {
-      console.log(`${TAG} onLibraryEntryComplete: "${entry.releaseTitle}" status=${entry.installStatus} exe=${entry.executablePath ?? 'none'}`);
-      await setupGame(entry).catch((err) => {
-        console.error(`${TAG} setupGame failed for "${entry.releaseTitle}":`, err.message);
-      });
-    });
-
     zephyr.hooks.onAppReady(async () => {
+      const config = await readOrCreateConfig().catch((err) => {
+        console.error(`${TAG} readOrCreateConfig failed:`, err.message);
+        return null;
+      });
+
+      if (config) {
+        connectToService(config);
+      }
+
       const { entries } = zephyr.library.list(1, 500);
       const verified = entries.filter((e) => e.installStatus === 'verified');
       console.log(`${TAG} onAppReady: ${entries.length} library entries, ${verified.length} verified`);
       for (const entry of verified) {
-        await setupGame(entry).catch((err) => {
-          console.error(`${TAG} setupGame failed for "${entry.releaseTitle}":`, err.message);
+        await sendGameRegister(entry).catch((err) => {
+          console.error(`${TAG} sendGameRegister failed for "${entry.releaseTitle}":`, err.message);
         });
       }
     });
 
-    // ── Core logic ───────────────────────────────────────────────────────────
+    zephyr.hooks.onLibraryEntryComplete(async (entry) => {
+      console.log(`${TAG} onLibraryEntryComplete: "${entry.releaseTitle}" status=${entry.installStatus}`);
+      if (wsReady) {
+        await sendGameRegister(entry).catch((err) => {
+          console.error(`${TAG} sendGameRegister failed for "${entry.releaseTitle}":`, err.message);
+        });
+      }
+    });
+
+    zephyr.hooks.onUninstall(async () => {
+      console.log(`${TAG} onUninstall: tearing down service + widget`);
+
+      // Close the WS client so the plugin stops holding a connection.
+      try {
+        if (wsClient) wsClient.close();
+      } catch {}
+      wsClient = null;
+      wsReady = false;
+
+      // Unregister the scheduled task (per-user; no elevation needed).
+      try {
+        await exec('powershell.exe', [
+          '-NoProfile', '-Command',
+          'Stop-ScheduledTask -TaskName "ZephyrAchievementWatcher" -ErrorAction SilentlyContinue; ' +
+            'Unregister-ScheduledTask -TaskName "ZephyrAchievementWatcher" -Confirm:$false -ErrorAction SilentlyContinue',
+        ]);
+        console.log(`${TAG} Scheduled task removed`);
+      } catch (err) {
+        console.error(`${TAG} Failed to unregister scheduled task:`, /** @type {Error} */ (err).message);
+      }
+
+      // Uninstall the widget MSIX + drop loopback exemption. Needs elevation.
+      // Skipped silently if the package is not installed.
+      try {
+        const { stdout } = await exec('powershell.exe', [
+          '-NoProfile', '-Command',
+          '(Get-AppxPackage -Name "ZephyrAchievementWatcher" | Select-Object -First 1 -ExpandProperty PackageFamilyName)',
+        ]);
+        const pfn = stdout.trim();
+        if (pfn) {
+          const ps1Lines = [
+            '$ErrorActionPreference = "SilentlyContinue"',
+            'Get-AppxPackage -Name "ZephyrAchievementWatcher" | Remove-AppxPackage',
+            `CheckNetIsolation.exe LoopbackExempt -d -n="${pfn}" | Out-Null`,
+          ].join('\r\n');
+          const tmp = path.join(app.getPath('temp'), `aw-uninstall-${Date.now()}.ps1`);
+          await fs.writeFile(tmp, ps1Lines, 'utf8');
+          try {
+            await exec('powershell.exe', [
+              '-NoProfile', '-Command',
+              `Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${tmp.replace(/'/g, "''")}')`,
+            ]);
+            console.log(`${TAG} Widget MSIX uninstalled`);
+          } finally {
+            await fs.rm(tmp, { force: true }).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.error(`${TAG} Failed to uninstall widget:`, /** @type {Error} */ (err).message);
+      }
+
+      // Remove the plugin's external data directory (config.json, cached game state).
+      try {
+        await fs.rm(dataDir, { recursive: true, force: true });
+        console.log(`${TAG} Data directory removed`);
+      } catch (err) {
+        console.error(`${TAG} Failed to remove dataDir:`, /** @type {Error} */ (err).message);
+      }
+    });
+
+    // ── Game register helper ──────────────────────────────────────────────────
 
     /** @param {import('../zephyr-plugin').LibraryEntry} entry */
-    async function setupGame(entry) {
-      if (games.has(entry.id)) {
-        console.log(`${TAG} "${entry.releaseTitle}" already registered — skipping`);
-        return;
-      }
-
+    async function sendGameRegister(entry) {
       const dir = entry.savePath || (entry.executablePath ? path.dirname(entry.executablePath) : null);
       if (!dir) {
-        console.warn(`${TAG} "${entry.releaseTitle}" has no savePath or executablePath — cannot scan`);
+        console.warn(`${TAG} "${entry.releaseTitle}" has no savePath or executablePath — cannot register`);
         return;
       }
 
-      console.log(`${TAG} Setting up "${entry.releaseTitle}" — dir=${dir}`);
+      const appId = await findSteamAppId(dir, entry.executablePath, entry.releaseTitle);
+      const steamApiKey = String(zephyr.settings.get('steamApiKey') ?? '');
 
-      /** @type {WatchedGame} */
-      const game = {
+      if (!gamesCache.has(entry.id)) {
+        gamesCache.set(entry.id, {
+          infoHash: entry.id,
+          title: entry.releaseTitle,
+          appId,
+          total: 0,
+          earned: 0,
+          watching: false,
+          lastChecked: null,
+          detectionNote: null,
+        });
+      }
+
+      sendToService({
+        type: 'game:register',
         infoHash: entry.id,
         title: entry.releaseTitle,
         savePath: dir,
         executablePath: entry.executablePath,
-        appId: null,
-        schema: [],
-        unlocks: [],
-        achievementFiles: [],
-        watching: false,
-        lastChecked: null,
-        detectionNote: null,
-      };
-
-      games.set(entry.id, game);
-
-      game.appId = await findSteamAppId(dir, entry.executablePath, entry.releaseTitle);
-      console.log(`${TAG} "${entry.releaseTitle}" appId=${game.appId ?? 'not found'}`);
-
-      const searchDirs = buildSearchDirs(dir, entry.executablePath);
-      console.log(`${TAG} "${entry.releaseTitle}" searching ${searchDirs.length} dir(s):`, searchDirs);
-      game.achievementFiles = await detectAchievementFiles(searchDirs, entry.releaseTitle, game.appId);
-      console.log(`${TAG} "${entry.releaseTitle}" achievement files found (${game.achievementFiles.length}):`, game.achievementFiles);
-
-      if (game.achievementFiles.length === 0 && game.appId == null) {
-        game.detectionNote = 'No achievement files detected — install a Steam emulator first';
-        console.warn(`${TAG} "${entry.releaseTitle}" — no achievement files and no AppID, giving up`);
-        return;
-      }
-
-      await refreshSchema(game);
-
-      game.unlocks = await parseAllAchievements(game.achievementFiles, game.schema);
-      game.lastChecked = Date.now();
-      console.log(`${TAG} "${entry.releaseTitle}" baseline: ${game.unlocks.filter((u) => u.earned).length}/${game.unlocks.length} earned`);
-
-      if (game.achievementFiles.length > 0) {
-        await startWatcher(game);
-      }
-
-      console.log(`${TAG} "${game.title}" ready — appId=${game.appId ?? 'none'}, files=${game.achievementFiles.length}, watching=${game.watching}, schema=${game.schema.length}`);
-    }
-
-    /** @param {WatchedGame} game */
-    async function refreshSchema(game) {
-      if (!game.appId) {
-        console.log(`${TAG} "${game.title}" no appId — skipping schema fetch`);
-        return;
-      }
-      if (game.schema.length > 0) return;
-      const key = String(zephyr.settings.get('steamApiKey') ?? '');
-      if (!key) {
-        console.warn(`${TAG} "${game.title}" no Steam API key — achievement names will show as IDs`);
-        return;
-      }
-      console.log(`${TAG} "${game.title}" fetching Steam schema for appId=${game.appId}`);
-      const result = await fetchSteamSchema(game.appId, key).catch((err) => {
-        console.error(`${TAG} "${game.title}" schema fetch failed:`, err.message);
-        return /** @type {SchemaDef[]} */ ([]);
+        steamAppId: appId,
+        steamApiKey: steamApiKey || undefined,
       });
-      game.schema = result;
-      console.log(`${TAG} "${game.title}" schema loaded: ${game.schema.length} achievements`);
-    }
-
-    /** @param {WatchedGame} game */
-    async function rescanGame(game) {
-      await refreshSchema(game);
-      const prevByid = new Map(game.unlocks.map((u) => [u.id, u.earned]));
-      game.unlocks = await parseAllAchievements(game.achievementFiles, game.schema);
-      game.lastChecked = Date.now();
-
-      const newUnlocks = game.unlocks.filter((u) => u.earned && !prevByid.get(u.id));
-      if (newUnlocks.length > 0) {
-        console.log(`${TAG} "${game.title}" ${newUnlocks.length} new unlock(s):`, newUnlocks.map((u) => u.displayName));
-        for (const unlock of newUnlocks) {
-          pendingNotifications.push({
-            gameTitle: game.title,
-            appId: game.appId,
-            achievementId: unlock.id,
-            achievementName: unlock.displayName,
-            achievementDesc: unlock.description,
-            iconUrl: unlock.iconUrl,
-            unlockedAt: unlock.unlockedAt,
-          });
-        }
-      }
-
-      const earned = game.unlocks.filter((u) => u.earned).length;
-      console.log(`${TAG} "${game.title}" rescan complete: ${earned}/${game.unlocks.length} earned`);
-    }
-
-    /** @param {WatchedGame} game */
-    async function startWatcher(game) {
-      const { watch } = await import('node:fs');
-      const dirs = [...new Set(game.achievementFiles.map((f) => path.dirname(f)))];
-
-      /** @type {ReturnType<typeof setTimeout> | null} */
-      let debounce = null;
-      const onChange = (/** @type {string} */ eventType, /** @type {string | null} */ filename) => {
-        console.log(`${TAG} "${game.title}" fs event: ${eventType} ${filename ?? ''}`);
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          debounce = null;
-          rescanGame(game).catch((err) =>
-            console.error(`${TAG} "${game.title}" rescan error:`, err.message),
-          );
-        }, 600);
-      };
-
-      const watchers = dirs
-        .map((dir) => {
-          try {
-            const w = watch(dir, { recursive: false }, onChange);
-            console.log(`${TAG} "${game.title}" watching dir: ${dir}`);
-            return w;
-          } catch (err) {
-            console.warn(`${TAG} "${game.title}" failed to watch dir ${dir}:`, /** @type {Error} */ (err).message);
-            return null;
-          }
-        })
-        .filter(/** @returns {x is import('node:fs').FSWatcher} */ (x) => x != null);
-
-      if (watchers.length > 0) {
-        game.watching = true;
-        activeWatchers.set(game.infoHash, watchers);
-      } else {
-        console.warn(`${TAG} "${game.title}" could not start any file watchers`);
-      }
     }
 
     // ── Discovery ────────────────────────────────────────────────────────────
@@ -342,334 +694,54 @@ export default {
       return null;
     }
 
-    /**
-     * @param {string[]} searchDirs
-     * @param {string} title
-     * @param {number | null} appId
-     * @returns {Promise<string[]>}
-     */
-    async function detectAchievementFiles(searchDirs, title, appId) {
-      const found = /** @type {string[]} */ ([]);
-
-      for (const dir of searchDirs) {
-        const candidates = [
-          'steam_settings/achievements.json',
-          'achievements.json',
-          'achievements.ini',
-          'CODEX/achievements.ini',
-          'CODEX/achievements.json',
-          'ALI213.ini',
-          'valve.ini',
-          'SteamConfig.ini',
-          'cream_api.ini',
-          ...(appId ? [`steam_settings/${appId}.json`] : []),
-        ];
-
-        for (const rel of candidates) {
-          const full = path.join(dir, rel);
-          try {
-            await fs.access(full);
-            if (!found.includes(full)) {
-              console.log(`${TAG} Found achievement file: ${full}`);
-              found.push(full);
-            }
-          } catch {}
-        }
-
-        try {
-          const dirents = await fs.readdir(dir, { withFileTypes: true });
-          for (const dirent of dirents) {
-            if (!dirent.isDirectory()) continue;
-            if (!/^(codex|empress|steam|steam_settings|emu|crack|ali213|goldberg|skidrow|rld|reloaded)$/i.test(dirent.name)) continue;
-            for (const rel of ['achievements.ini', 'achievements.json']) {
-              const full = path.join(dir, dirent.name, rel);
-              try {
-                await fs.access(full);
-                if (!found.includes(full)) {
-                  console.log(`${TAG} Found achievement file (subdir): ${full}`);
-                  found.push(full);
-                }
-              } catch {}
-            }
-          }
-        } catch {}
-
-        // Deep recursive search for named emulator configs buried in subdirs
-        // (e.g. tenoke.ini at Bo_Data/Plugins/x86_64/tenoke.ini)
-        for (const target of ['tenoke.ini', 'hiu.ini', 'rune.ini']) {
-          await findNamedRecursive(dir, target, 5, found);
-        }
-      }
-
-      if (found.length === 0) {
-        const geminiKey = String(zephyr.app.getSettings().geminiApiKey ?? '');
-        if (geminiKey) {
-          console.log(`${TAG} Pattern matching found nothing for "${title}" — asking Gemini`);
-          const geminiCandidates = await geminiDetectAchievementFiles(searchDirs, title, geminiKey);
-          console.log(`${TAG} Gemini suggested ${geminiCandidates.length} file(s) for "${title}":`, geminiCandidates);
-          for (const f of geminiCandidates) {
-            if (!found.includes(f)) found.push(f);
-          }
-        } else {
-          console.log(`${TAG} Pattern matching found nothing for "${title}" and no Gemini key set`);
-        }
-      }
-
-      return found;
-    }
-
-    /**
-     * @param {string[]} searchDirs
-     * @param {string} title
-     * @param {string} apiKey
-     * @returns {Promise<string[]>}
-     */
-    async function geminiDetectAchievementFiles(searchDirs, title, apiKey) {
-      const { net } = await import('electron');
-      const listings = [];
-
-      for (const dir of searchDirs) {
-        try {
-          const dirents = await fs.readdir(dir, { withFileTypes: true });
-          const lines = dirents.map((d) => (d.isDirectory() ? `[dir] ${d.name}` : d.name)).join('\n');
-          listings.push(`Directory: ${dir}\n${lines}`);
-          for (const dirent of dirents) {
-            if (!dirent.isDirectory()) continue;
-            try {
-              const sub = await fs.readdir(path.join(dir, dirent.name));
-              listings.push(`Directory: ${path.join(dir, dirent.name)}\n${sub.join('\n')}`);
-            } catch {}
-          }
-        } catch {}
-      }
-
-      if (listings.length === 0) {
-        console.warn(`${TAG} Gemini: could not read any directories for "${title}"`);
-        return [];
-      }
-
-      const prompt = `You are analyzing the install directory of the PC game "${title}" to find achievement tracking files used by Steam emulators (Goldberg, CODEX, ALI213, SmartSteamEmu, CreamAPI, EMPRESS).
-
-Directory listings:
-
-${listings.join('\n\n')}
-
-Identify files that are likely Steam achievement tracking files. These are typically named:
-- achievements.json, achievements.ini (in game root or an emulator sub-directory)
-- <numeric AppID>.json (a numeric filename in steam_settings/)
-- ALI213.ini, valve.ini, SteamConfig.ini, cream_api.ini
-- Files inside folders named codex, goldberg, steam_settings, steam, emu, etc.
-
-Return ONLY a JSON array of absolute file paths. If none are likely, return []. No explanation, no markdown.`;
-
-      try {
-        const res = await net.fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-            }),
-          },
-        );
-        if (!res.ok) {
-          console.error(`${TAG} Gemini HTTP ${res.status} for "${title}"`);
-          return [];
-        }
-        const data = /** @type {any} */ (await res.json());
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
-        const parsed = JSON.parse(text);
-        if (!Array.isArray(parsed)) {
-          console.warn(`${TAG} Gemini returned non-array for "${title}":`, text);
-          return [];
-        }
-
-        const verified = [];
-        for (const f of parsed) {
-          if (typeof f !== 'string') continue;
-          try {
-            await fs.access(f);
-            verified.push(f);
-          } catch {
-            console.warn(`${TAG} Gemini suggested "${f}" but it does not exist`);
-          }
-        }
-        return verified;
-      } catch (err) {
-        console.error(`${TAG} Gemini request failed for "${title}":`, /** @type {Error} */ (err).message);
-        return [];
-      }
-    }
-
-    // ── Achievement parsing ───────────────────────────────────────────────────
-
-    /**
-     * @param {string[]} files
-     * @param {SchemaDef[]} schema
-     * @returns {Promise<AchievementUnlock[]>}
-     */
-    async function parseAllAchievements(files, schema) {
-      /** @type {Map<string, AchievementUnlock>} */
-      const byId = new Map();
-
-      for (const file of files) {
-        try {
-          const ext = path.extname(file).toLowerCase();
-          const parsed =
-            ext === '.json'
-              ? await parseJsonAchievements(file, schema)
-              : await parseIniAchievements(file, schema);
-          console.log(`${TAG} Parsed ${parsed.length} entries from ${file} (${parsed.filter((a) => a.earned).length} earned)`);
-          for (const ach of parsed) {
-            const existing = byId.get(ach.id);
-            if (!existing || (ach.earned && !existing.earned)) {
-              byId.set(ach.id, ach);
-            }
-          }
-        } catch (err) {
-          console.error(`${TAG} Failed to parse ${file}:`, /** @type {Error} */ (err).message);
-        }
-      }
-
-      for (const def of schema) {
-        if (!byId.has(def.name)) {
-          byId.set(def.name, {
-            id: def.name,
-            displayName: def.displayName,
-            description: def.description,
-            iconUrl: def.icon ?? null,
-            earned: false,
-            unlockedAt: null,
-          });
-        }
-      }
-
-      return [...byId.values()];
-    }
-
-    /**
-     * @param {string} file
-     * @param {SchemaDef[]} schema
-     * @returns {Promise<AchievementUnlock[]>}
-     */
-    async function parseJsonAchievements(file, schema) {
-      const raw = /** @type {Record<string, unknown>} */ (JSON.parse(await fs.readFile(file, 'utf8')));
-      return Object.entries(raw).map(([id, data]) => {
-        const d = /** @type {Record<string, unknown>} */ (data ?? {});
-        const def = schema.find((s) => s.name === id);
-        return {
-          id,
-          displayName: def?.displayName ?? id,
-          description: def?.description ?? '',
-          iconUrl: def?.icon ?? null,
-          earned: !!(d.earned || d.achieved || d.Achieved),
-          unlockedAt:
-            typeof d.earned_time === 'number'
-              ? d.earned_time
-              : typeof d.unlock_time === 'number'
-                ? d.unlock_time
-                : typeof d.UnlockTime === 'number'
-                  ? d.UnlockTime
-                  : null,
-        };
-      });
-    }
-
-    /**
-     * @param {string} file
-     * @param {SchemaDef[]} schema
-     * @returns {Promise<AchievementUnlock[]>}
-     */
-    async function parseIniAchievements(file, schema) {
-      const content = await fs.readFile(file, 'utf8');
-      const results = [];
-      const sectionRe = /^\[([^\]]+)\]\s*$([\s\S]*?)(?=^\[[^\]]+\]|\s*$)/gm;
-      let m;
-      while ((m = sectionRe.exec(content)) !== null) {
-        const name = m[1].trim();
-        const body = m[2];
-        if (!/Achieved\s*=/i.test(body)) continue;
-        const earned = /Achieved\s*=\s*1/i.test(body);
-        const timeMatch = body.match(/UnlockTime\s*=\s*(\d+)/i);
-        const def = schema.find((s) => s.name === name);
-        results.push({
-          id: name,
-          displayName: def?.displayName ?? name,
-          description: def?.description ?? '',
-          iconUrl: def?.icon ?? null,
-          earned,
-          unlockedAt: timeMatch ? parseInt(timeMatch[1], 10) : null,
-        });
-      }
-      return results;
-    }
-
-    /**
-     * Recursively search `dir` up to `depth` levels deep for a file named `target`.
-     * Appends found absolute paths to `out`, skipping duplicates.
-     * @param {string} dir
-     * @param {string} target
-     * @param {number} depth
-     * @param {string[]} out
-     */
-    async function findNamedRecursive(dir, target, depth, out) {
-      if (depth <= 0) return;
-      let dirents;
-      try {
-        dirents = await fs.readdir(dir, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const dirent of dirents) {
-        const full = path.join(dir, dirent.name);
-        if (dirent.isFile() && dirent.name.toLowerCase() === target.toLowerCase()) {
-          if (!out.includes(full)) {
-            console.log(`${TAG} Found achievement file (recursive): ${full}`);
-            out.push(full);
-          }
-        } else if (dirent.isDirectory()) {
-          await findNamedRecursive(full, target, depth - 1, out);
-        }
-      }
-    }
-
-    // ── Steam API ────────────────────────────────────────────────────────────
-
-    /**
-     * @param {number} appId
-     * @param {string} apiKey
-     * @returns {Promise<SchemaDef[]>}
-     */
-    async function fetchSteamSchema(appId, apiKey) {
-      const { net } = await import('electron');
-      const res = await net.fetch(
-        `https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/?key=${apiKey}&appid=${appId}&l=english`,
-      );
-      if (!res.ok) {
-        console.error(`${TAG} Steam schema HTTP ${res.status} for appId=${appId}`);
-        return [];
-      }
-      const data = /** @type {any} */ (await res.json());
-      const raw = data?.game?.availableGameStats?.achievements ?? [];
-      return raw.map(
-        /** @param {any} a */ (a) => ({
-          name: String(a.name),
-          displayName: String(a.displayName ?? a.name),
-          description: String(a.description ?? ''),
-          icon: typeof a.icon === 'string' ? a.icon : undefined,
-          iconGray: typeof a.icongray === 'string' ? a.icongray : undefined,
-          hidden: a.hidden === 1,
-        }),
-      );
-    }
-
-    // ── Utility ──────────────────────────────────────────────────────────────
+    // ── Utility ───────────────────────────────────────────────────────────────
 
     /** @param {unknown} v @returns {Record<string, unknown>} */
     function asRecord(v) {
       return v != null && typeof v === 'object' ? /** @type {any} */ (v) : {};
+    }
+
+    /**
+     * Poll 127.0.0.1:<port> until something is listening or the timeout elapses.
+     * Returns true on first successful TCP handshake, false if the timeout hits first.
+     * @param {number} port
+     * @param {number} timeoutMs
+     */
+    async function waitForServicePort(port, timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const ok = await new Promise((resolve) => {
+          const sock = net.connect({ host: '127.0.0.1', port }, () => {
+            sock.end();
+            resolve(true);
+          });
+          sock.once('error', () => resolve(false));
+          sock.setTimeout(500, () => {
+            sock.destroy();
+            resolve(false);
+          });
+        });
+        if (ok) return true;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return false;
+    }
+
+    /** Recursively find the first .msix file under a directory. @returns {Promise<string|null>} */
+    async function findMsix(/** @type {string} */ dir) {
+      /** @type {string|null} */
+      let result = null;
+      let entries;
+      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return null; }
+      for (const e of entries) {
+        if (e.isDirectory()) {
+          result = await findMsix(path.join(dir, e.name));
+          if (result) return result;
+        } else if (e.name.endsWith('.msix')) {
+          return path.join(dir, e.name);
+        }
+      }
+      return null;
     }
   },
 };

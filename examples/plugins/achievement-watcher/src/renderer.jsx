@@ -1,95 +1,29 @@
 // Achievement Watcher — renderer layer
 // All styling uses the Zephyr Plugin UI Kit (.zephyr-* / --zephyr-*). Tailwind classes do NOT work here.
+// Achievement unlock notifications are delivered via the Windows notification API (Electron.Notification)
+// from the main process — no in-app toast overlay needed here.
 
 import { useState, useEffect, useCallback } from 'react';
 
-// ── Module-level overlay (DOM-native, always active regardless of current route) ──
-
-const _style = document.createElement('style');
-_style.textContent = `
-  #aw-overlay-root {
-    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-    pointer-events: none; display: flex; flex-direction: column-reverse;
-    gap: 10px; align-items: flex-end; max-width: 340px;
-  }
-  .aw-toast { pointer-events: auto; animation: aw-in 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-  .aw-toast.aw-out { animation: aw-out 0.25s ease forwards; }
-  @keyframes aw-in  { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  @keyframes aw-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(120%); opacity: 0; } }
-`;
-document.head.appendChild(_style);
-
-const _overlayRoot = document.createElement('div');
-_overlayRoot.id = 'aw-overlay-root';
-document.body.appendChild(_overlayRoot);
-
-function _playUnlockSound() {
-  try {
-    const ctx = new AudioContext();
-    /** @param {number} freq @param {number} start @param {number} dur */
-    const tone = (freq, start, dur) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.22, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
-      osc.start(start);
-      osc.stop(start + dur);
-    };
-    const t = ctx.currentTime;
-    tone(660, t, 0.12);
-    tone(880, t + 0.13, 0.12);
-    tone(1100, t + 0.27, 0.4);
-  } catch {}
-}
-
-/** @param {string} s */
-function _esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** @param {any} notif */
-function _showToast(notif) {
-  const toast = document.createElement('div');
-  toast.className = 'aw-toast zephyr-card';
-  toast.style.cssText =
-    'min-width:260px;max-width:340px;border-left:3px solid var(--zephyr-accent);';
-  toast.innerHTML = `
-    <div class="zephyr-row" style="gap:10px;align-items:center;">
-      ${notif.iconUrl ? `<img src="${_esc(notif.iconUrl)}" style="width:44px;height:44px;border-radius:4px;flex-shrink:0;object-fit:cover;" onerror="this.style.display='none'" />` : '<div style="width:44px;height:44px;border-radius:4px;background:var(--zephyr-border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">🏆</div>'}
-      <div style="flex:1;min-width:0;">
-        <div class="zephyr-label" style="margin-bottom:2px;">Achievement Unlocked</div>
-        <div class="zephyr-text-primary" style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(notif.achievementName || notif.achievementId)}</div>
-        ${notif.achievementDesc ? `<div class="zephyr-text-muted" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(notif.achievementDesc)}</div>` : ''}
-        <div class="zephyr-text-subtle" style="font-size:10px;margin-top:1px;">${_esc(notif.gameTitle)}</div>
-      </div>
-    </div>`;
-  _overlayRoot.appendChild(toast);
-  _playUnlockSound();
-  setTimeout(() => {
-    toast.classList.add('aw-out');
-    setTimeout(() => toast.remove(), 260);
-  }, 6500);
-}
-
-// Poll for new achievement unlocks every 2 seconds
-setInterval(async () => {
-  try {
-    const notifications = await window.api.invokePlugin('achievement-watcher:poll-notifications');
-    if (Array.isArray(notifications)) {
-      for (const n of notifications) _showToast(n);
-    }
-  } catch {}
-}, 2000);
-
 // ── React hooks ──────────────────────────────────────────────────────────────
+
+function useServiceStatus() {
+  const [status, setStatus] = useState(/** @type {{ serviceInstalled: boolean; serviceRunning: boolean; widgetInstalled: boolean; connected: boolean } | null} */ (null));
+
+  useEffect(() => {
+    async function poll() {
+      try {
+        const s = await window.api.invokePlugin('achievement-watcher:get-status');
+        setStatus(s);
+      } catch {}
+    }
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  return status;
+}
 
 function useAllGames() {
   const [games, setGames] = useState(/** @type {any[]} */ ([]));
@@ -119,23 +53,142 @@ function useAllGames() {
 
 function AchievementPage({ release }) {
   const { games, loading, refresh } = useAllGames();
+  const status = useServiceStatus();
+  const [installing, setInstalling] = useState(/** @type {'service' | 'widget' | 'start' | null} */ (null));
 
   async function rescan(infoHash) {
     await window.api.invokePlugin('achievement-watcher:rescan', { infoHash });
     await refresh();
   }
 
+  async function installService() {
+    setInstalling('service');
+    try {
+      await window.api.invokePlugin('achievement-watcher:install-service');
+    } catch (err) {
+      console.error('[achievement-watcher] install-service failed:', err);
+    } finally {
+      setInstalling(null);
+    }
+  }
+
+  async function installWidget() {
+    setInstalling('widget');
+    try {
+      await window.api.invokePlugin('achievement-watcher:install-widget');
+    } catch (err) {
+      console.error('[achievement-watcher] install-widget failed:', err);
+    } finally {
+      setInstalling(null);
+    }
+  }
+
+  async function startService() {
+    setInstalling('start');
+    try {
+      await window.api.invokePlugin('achievement-watcher:start-service');
+    } catch (err) {
+      console.error('[achievement-watcher] start-service failed:', err);
+    } finally {
+      setInstalling(null);
+    }
+  }
+
   return (
     <div className="zephyr-stack--md" style={{ padding: 24, maxWidth: 820, margin: '0 auto' }}>
-      <div>
-        <h2 className="zephyr-text-primary" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
-          Achievement Watcher
-        </h2>
-        <p className="zephyr-text-muted" style={{ marginTop: 4 }}>
-          Tracks achievement unlocks across installed library games. Add a Steam API Key in{' '}
-          <em>Settings → Plugins</em> to fetch achievement names and icons.
-        </p>
+      <div className="zephyr-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <h2 className="zephyr-text-primary" style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            Achievement Watcher
+          </h2>
+          <p className="zephyr-text-muted" style={{ marginTop: 4 }}>
+            Tracks achievement unlocks across installed library games. Add a Steam API Key in{' '}
+            <em>Settings → Plugins</em> to fetch achievement names and icons.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="zephyr-button"
+          style={{ flexShrink: 0, fontSize: 12 }}
+          onClick={() => window.api.invokePlugin('achievement-watcher:test-notification')}
+        >
+          Test notification
+        </button>
       </div>
+
+      {status && !status.serviceInstalled && (
+        <div className="zephyr-card" style={{ borderLeft: '3px solid var(--zephyr-accent)', padding: 16 }}>
+          <div className="zephyr-text-primary" style={{ fontWeight: 700, marginBottom: 6 }}>
+            Achievement Service not installed
+          </div>
+          <p className="zephyr-text-muted" style={{ margin: '0 0 12px', fontSize: 13 }}>
+            The background service watches your achievement files even while Zephyr is closed, and
+            delivers unlock notifications to the Game Bar widget during gameplay.
+          </p>
+          <button
+            type="button"
+            className="zephyr-button"
+            onClick={installService}
+            disabled={installing === 'service'}
+          >
+            {installing === 'service' ? 'Installing…' : 'Install Achievement Service'}
+          </button>
+        </div>
+      )}
+
+      {status && status.serviceInstalled && !status.serviceRunning && (
+        <div className="zephyr-card" style={{ borderLeft: '3px solid var(--zephyr-accent)', padding: 16 }}>
+          <div className="zephyr-text-primary" style={{ fontWeight: 700, marginBottom: 4 }}>
+            Service installed but not running
+          </div>
+          <p className="zephyr-text-muted" style={{ margin: '0 0 12px', fontSize: 13 }}>
+            The achievement service isn't listening. Start it now — it'll auto-start at every
+            login thereafter. If starting fails repeatedly, check Task Scheduler's{' '}
+            <em>Last Run Result</em> for <em>ZephyrAchievementWatcher</em>.
+          </p>
+          <button
+            type="button"
+            className="zephyr-button"
+            onClick={startService}
+            disabled={installing === 'start'}
+          >
+            {installing === 'start' ? 'Starting…' : 'Start Service'}
+          </button>
+        </div>
+      )}
+
+      {status && status.serviceInstalled && !status.widgetInstalled && (
+        <div className="zephyr-card" style={{ borderLeft: '3px solid var(--zephyr-border)', padding: 16 }}>
+          <div className="zephyr-text-primary" style={{ fontWeight: 700, marginBottom: 6 }}>
+            Game Bar widget not installed
+          </div>
+          <p className="zephyr-text-muted" style={{ margin: '0 0 12px', fontSize: 13 }}>
+            Install the Game Bar widget to see achievement toast notifications while playing in
+            full-screen exclusive mode.
+          </p>
+          <button
+            type="button"
+            className="zephyr-button"
+            onClick={installWidget}
+            disabled={installing === 'widget'}
+          >
+            {installing === 'widget' ? 'Installing…' : 'Install Game Bar Widget'}
+          </button>
+        </div>
+      )}
+
+      {status && status.serviceInstalled && status.widgetInstalled && (
+        <div className="zephyr-card" style={{ borderLeft: '3px solid var(--zephyr-border)', padding: 12 }}>
+          <div className="zephyr-text-primary" style={{ fontWeight: 600, marginBottom: 4, fontSize: 13 }}>
+            Pin the widget to Game Bar
+          </div>
+          <p className="zephyr-text-muted" style={{ margin: 0, fontSize: 12 }}>
+            Press <strong>Win+G</strong> to open Game Bar, find <em>Achievement Watcher</em>, then
+            click the <strong>Pin</strong> icon. The widget must be pinned to show notifications
+            while you play.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <p className="zephyr-text-subtle">Scanning library…</p>
