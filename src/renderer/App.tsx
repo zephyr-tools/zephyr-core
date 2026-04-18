@@ -164,7 +164,7 @@ function Pagination({
 }: PaginationProps): JSX.Element {
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   return (
-    <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-zinc-900 bg-zinc-950/85 px-5 py-2.5 text-xs text-zinc-400 backdrop-blur">
+    <div className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-zinc-900 bg-zinc-950 px-5 py-2.5 text-xs text-zinc-400">
       <div className="flex items-center gap-2">
         <span className="rounded-md bg-zinc-900 px-2 py-0.5 font-mono">{source}</span>
         <span>
