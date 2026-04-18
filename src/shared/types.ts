@@ -159,6 +159,42 @@ export interface DownloadJob {
   revealPath?: string;
 }
 
+// ---- Library types ----
+
+export interface LibraryReleaseInfo {
+  releaseId: string;
+  releaseName: string;
+  releaseTitle: string;
+  team: string | null;
+  category: string;
+}
+
+export type InstallStatus = 'downloading' | 'verified' | 'missing' | 'unlocated';
+
+export interface LibraryEntry {
+  /** Keyed by infoHash. */
+  id: string;
+  releaseName: string;
+  releaseTitle: string;
+  team: string | null;
+  category: string;
+  /** Title used to fetch artwork (= releaseTitle). */
+  artworkTitle: string;
+  addedAt: number;
+  completedAt?: number;
+  savePath: string;
+  totalSize: number;
+  installStatus: InstallStatus;
+  executablePath?: string;
+}
+
+export interface LibraryListResult {
+  entries: LibraryEntry[];
+  total: number;
+  page: number;
+  perPage: number;
+}
+
 export interface GroupPrerequisites {
   group: string;
   /** Short summary of the group and their release style. */
@@ -242,7 +278,7 @@ export interface BridgeApi {
   // Torrent search + prerequisites
   searchTorrents(name: string, title: string): Promise<TorrentResult[]>;
   getGroupPrerequisites(group: string, releaseName: string): Promise<GroupPrerequisites>;
-  addTorrent(magnetUri: string, expectedSize?: number): Promise<DownloadJob>;
+  addTorrent(magnetUri: string, expectedSize?: number, releaseInfo?: LibraryReleaseInfo): Promise<DownloadJob>;
   // Download management — shown in UI
   listDownloads(): Promise<DownloadJob[]>;
   pauseDownload(infoHash: string): Promise<void>;
@@ -278,6 +314,15 @@ export interface BridgeApi {
   setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>;
   /** Relaunch the app so install/remove changes take effect across both processes. */
   restartApp(): Promise<void>;
+
+  // Library
+  listLibrary(page: number, perPage: number): Promise<LibraryListResult>;
+  updateLibraryEntry(id: string, patch: Partial<LibraryEntry>): Promise<void>;
+  removeLibraryEntry(id: string): Promise<void>;
+  /** Opens a native file dialog, persists the chosen path, and returns it (null if cancelled). */
+  pickExecutable(id: string): Promise<string | null>;
+  launchGame(id: string): Promise<void>;
+  verifyLibrary(): Promise<void>;
 }
 
 export interface PluginRendererPath {

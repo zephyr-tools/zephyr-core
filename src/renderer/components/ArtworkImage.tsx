@@ -58,18 +58,28 @@ export function ArtworkImage({ title, className, noOverlay }: ArtworkImageProps)
             <ImageOff className="h-8 w-8 text-zinc-700" />
             <span className="text-[11px] text-zinc-600">no artwork</span>
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={async (e) => {
               e.preventDefault();
               e.stopPropagation();
-              void window.api.refreshArtwork(title).then(() => query.refetch());
+              await window.api.refreshArtwork(title);
+              void query.refetch();
             }}
-            className="absolute right-2 top-2 z-10 rounded-full bg-zinc-950/70 p-1.5 text-zinc-300 opacity-0 backdrop-blur transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
+            onKeyDown={async (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                await window.api.refreshArtwork(title);
+                void query.refetch();
+              }
+            }}
+            className="absolute right-2 top-2 z-10 cursor-pointer rounded-full bg-zinc-950/70 p-1.5 text-zinc-300 opacity-0 backdrop-blur transition-opacity hover:bg-zinc-800 group-hover:opacity-100"
             title="Re-fetch artwork"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-          </button>
+          </div>
         </>
       )}
     </div>

@@ -161,6 +161,31 @@ export interface DownloadJob {
    */
   revealPath?: string;
 }
+export type InstallStatus = 'downloading' | 'verified' | 'missing' | 'unlocated';
+
+export interface LibraryEntry {
+  /** Keyed by infoHash. */
+  id: string;
+  releaseName: string;
+  releaseTitle: string;
+  team: string | null;
+  category: string;
+  /** Title used to fetch artwork (= releaseTitle). */
+  artworkTitle: string;
+  addedAt: number;
+  completedAt?: number;
+  savePath: string;
+  totalSize: number;
+  installStatus: InstallStatus;
+  executablePath?: string;
+}
+
+export interface LibraryListResult {
+  entries: LibraryEntry[];
+  total: number;
+  page: number;
+  perPage: number;
+}
 // </generated>
 
 export interface ZephyrHooksApi {
@@ -174,6 +199,27 @@ export interface ZephyrHooksApi {
    * acting on the download.
    */
   onDownloadComplete(handler: (job: DownloadJob) => void): void;
+  /**
+   * Called after a download completes and executable auto-discovery has run.
+   * Fires only for downloads that were started from a release page (i.e. that
+   * have release metadata attached). `entry.installStatus` is `'verified'`
+   * when an executable was found automatically, `'unlocated'` otherwise.
+   * Use `entry.executablePath` to launch or integrate with the installed game.
+   */
+  onLibraryEntryComplete(handler: (entry: LibraryEntry) => void): void;
+}
+
+export interface ZephyrLibraryApi {
+  /**
+   * Get a single library entry by its id (infoHash). Returns `undefined` if
+   * the download was not started from a release page or is not yet in the library.
+   */
+  get(id: string): LibraryEntry | undefined;
+  /**
+   * List all library entries, newest first. Paginated — defaults to page 1,
+   * 100 entries per page.
+   */
+  list(page?: number, perPage?: number): LibraryListResult;
 }
 
 export interface ZephyrAPI {
@@ -181,6 +227,8 @@ export interface ZephyrAPI {
   ipc: ZephyrIpcApi;
   settings: ZephyrSettingsApi;
   hooks: ZephyrHooksApi;
+  /** Read-only access to the user's game library. */
+  library: ZephyrLibraryApi;
 }
 
 export interface ZephyrPlugin {

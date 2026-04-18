@@ -56,8 +56,8 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null): void {
 }
 
 /** Manually trigger an update check. */
-export function checkForUpdate(): Promise<void> {
-  return autoUpdater.checkForUpdates().then(() => {});
+export async function checkForUpdate(): Promise<void> {
+  await autoUpdater.checkForUpdates();
 }
 
 /** Quit and install the downloaded update. */

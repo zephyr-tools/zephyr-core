@@ -3,6 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
   DownloadJob,
+  LibraryEntry,
+  LibraryListResult,
   LoadedPlugin,
   PluginSettingOption,
   PluginSettingType,
@@ -25,6 +27,12 @@ interface PluginSettingRegisterSpec {
   hint?: string;
 }
 
+/** Minimal read-only library accessor passed into the plugin API. */
+interface LibraryAccessor {
+  list(page?: number, perPage?: number): LibraryListResult;
+  getEntry(id: string): LibraryEntry | undefined;
+}
+
 interface ZephyrAPI {
   ui: {
     addDetailButton(spec: { label: string; action: string; icon?: string }): void;
@@ -42,6 +50,20 @@ interface ZephyrAPI {
   hooks: {
     onDownloadComplete(handler: (job: DownloadJob) => void): void;
     onAppReady(handler: () => void): void;
+    /**
+     * Called after a download completes and auto-discovery has resolved the
+     * executable path. `entry.installStatus` is `'verified'` when an executable
+     * was found, `'unlocated'` otherwise. Only fires for downloads that were
+     * started with release metadata attached.
+     */
+    onLibraryEntryComplete(handler: (entry: LibraryEntry) => void): void;
+  };
+  /** Read-only access to the user's game library. */
+  library: {
+    /** Retrieve a single entry by its infoHash id, or `undefined` if not in the library. */
+    get(id: string): LibraryEntry | undefined;
+    /** List all library entries, newest first. Paginated — defaults to page 1, 100 per page. */
+    list(page?: number, perPage?: number): LibraryListResult;
   };
 }
 
@@ -67,9 +89,11 @@ export class PluginHost {
   >();
   private unregisteredSetWarnings = new Set<string>(); // `${pluginId}:${key}`, warned-once
   private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
+  private libraryEntryCompleteHandlers: Array<(entry: LibraryEntry) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
   private loadedPlugins: LoadedPlugin[] = [];
   private rendererUrls = new Map<string, string>(); // pluginId -> file:// URL
+  private libraryAccessor: LibraryAccessor | null = null;
 
   constructor() {
     this.pluginsDir = path.join(app.getPath('userData'), 'plugins');
@@ -332,12 +356,26 @@ export class PluginHost {
     return Array.from(this.rendererUrls.entries()).map(([pluginId, url]) => ({ pluginId, url }));
   }
 
+  setLibraryService(accessor: LibraryAccessor): void {
+    this.libraryAccessor = accessor;
+  }
+
   notifyDownloadComplete(job: DownloadJob): void {
     for (const handler of this.downloadCompleteHandlers) {
       try {
         handler(job);
       } catch (err) {
         console.error('[PluginHost] onDownloadComplete handler threw:', (err as Error).message);
+      }
+    }
+  }
+
+  notifyLibraryEntryComplete(entry: LibraryEntry): void {
+    for (const handler of this.libraryEntryCompleteHandlers) {
+      try {
+        handler(entry);
+      } catch (err) {
+        console.error('[PluginHost] onLibraryEntryComplete handler threw:', (err as Error).message);
       }
     }
   }
@@ -444,6 +482,24 @@ export class PluginHost {
         },
         onAppReady(handler) {
           host.appReadyHandlers.push(handler);
+        },
+        onLibraryEntryComplete(handler) {
+          host.libraryEntryCompleteHandlers.push(handler);
+        },
+      },
+      library: {
+        get(id) {
+          return host.libraryAccessor?.getEntry(id);
+        },
+        list(page, perPage) {
+          return (
+            host.libraryAccessor?.list(page, perPage) ?? {
+              entries: [],
+              total: 0,
+              page: page ?? 1,
+              perPage: perPage ?? 100,
+            }
+          );
         },
       },
     };

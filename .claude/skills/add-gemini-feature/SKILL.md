@@ -80,14 +80,19 @@ getMyFeature(input: string): Promise<MyFeatureResult> {
   if (!apiKey) return Promise.resolve({ origin: 'none' });
 
   const none: MyFeatureResult = { origin: 'none' };
-  const promise = fetchMyFeature(input, apiKey)
-    .then((r) => { this.myCache.set(key, r); return r; })
-    .catch((err) => {
+  const promise = (async () => {
+    try {
+      const r = await fetchMyFeature(input, apiKey);
+      this.myCache.set(key, r);
+      return r;
+    } catch (err) {
       console.warn(`[myFeature] failed: ${(err as Error).message}`);
       this.myCache.set(key, none);
       return none;
-    })
-    .finally(() => this.myInflight.delete(key));
+    } finally {
+      this.myInflight.delete(key);
+    }
+  })();
 
   this.myInflight.set(key, promise);
   return promise;

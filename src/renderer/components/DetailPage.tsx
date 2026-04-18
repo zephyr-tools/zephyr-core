@@ -2,6 +2,7 @@ import type {
   GameDetails,
   GameTrailer,
   GroupPrerequisites,
+  LibraryReleaseInfo,
   Release,
   TorrentResult,
 } from '@shared/types';
@@ -209,9 +210,17 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
     retry: 0,
   });
   const [addedHashes, setAddedHashes] = useState<Set<string>>(new Set());
+  const releaseInfo: LibraryReleaseInfo = {
+    releaseId: release.id,
+    releaseName: release.name,
+    releaseTitle: release.title,
+    team: release.team,
+    category: release.category,
+  };
+
   const addTorrent = useMutation({
     mutationFn: ({ magnetUri, size }: { magnetUri: string; size: number }) =>
-      window.api.addTorrent(magnetUri, size),
+      window.api.addTorrent(magnetUri, size, releaseInfo),
     onSuccess: (_data, { magnetUri }) => {
       const match = /urn:btih:([a-fA-F0-9]{40})/i.exec(magnetUri);
       if (match?.[1]) setAddedHashes((s) => new Set(s).add(match[1]!.toLowerCase()));

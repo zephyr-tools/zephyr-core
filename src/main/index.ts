@@ -1,12 +1,13 @@
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
-import type { AppSettings, ReleaseListQuery } from '@shared/types';
+import type { AppSettings, LibraryEntry, LibraryReleaseInfo, ReleaseListQuery, ScanStatus } from '@shared/types';
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.js';
 import { cachePaths } from './cache.js';
 import { GameDetailsService } from './details.js';
 import { ArtworkService } from './gemini.js';
+import { LibraryService } from './library.js';
 import { PluginHost } from './plugin-host.js';
 import { PredbClient } from './predb.js';
 import { RealDebridService } from './real-debrid.js';
@@ -33,35 +34,24 @@ const predb = new PredbClient();
 let artwork: ArtworkService | null = null;
 let gameDetails: GameDetailsService | null = null;
 const torrentClient = new TorrentClient(() => mainWindow);
+const libraryService = new LibraryService();
 
-torrentClient.setOnComplete((job) => {
+torrentClient.setOnComplete(async (job) => {
   const vtKey = settings.snapshot().virusTotalApiKey;
   torrentClient.updateExternal(job.infoHash, { scanStatus: 'scanning' });
-  scanDownload(job.savePath, job.name, vtKey)
-    .then((result) => {
-      torrentClient.updateExternal(job.infoHash, {
-        scanStatus: result.status,
-        scanInfo: result.info,
-      });
-      // Fire plugin hooks after the scan resolves so handlers see the
-      // final scanStatus/scanInfo on the job.
-      pluginHost.notifyDownloadComplete({
-        ...job,
-        scanStatus: result.status,
-        scanInfo: result.info,
-      });
-    })
-    .catch(() => {
-      torrentClient.updateExternal(job.infoHash, {
-        scanStatus: 'error',
-        scanInfo: 'Scan failed unexpectedly',
-      });
-      pluginHost.notifyDownloadComplete({
-        ...job,
-        scanStatus: 'error',
-        scanInfo: 'Scan failed unexpectedly',
-      });
-    });
+  let scanStatus: ScanStatus = 'error';
+  let scanInfo: string | undefined = 'Scan failed unexpectedly';
+  try {
+    const result = await scanDownload(job.savePath, job.name, vtKey);
+    scanStatus = result.status;
+    scanInfo = result.info;
+  } catch {
+    // defaults already set above
+  }
+  torrentClient.updateExternal(job.infoHash, { scanStatus, scanInfo });
+  const entry = await libraryService.onJobComplete(job.infoHash, job.savePath).catch(() => undefined);
+  if (entry) pluginHost.notifyLibraryEntryComplete(entry);
+  pluginHost.notifyDownloadComplete({ ...job, scanStatus, scanInfo });
 });
 
 const realDebrid = new RealDebridService(() => settings.snapshot().realDebridApiKey, torrentClient);
@@ -219,11 +209,25 @@ function registerIpc(): void {
     searchTorrents(name, title),
   );
 
-  ipcMain.handle('torrent:add', async (_event, magnetUri: string, expectedSize?: number) => {
-    const rdKey = settings.snapshot().realDebridApiKey;
-    if (rdKey) return realDebrid.download(magnetUri, expectedSize);
-    return torrentClient.add(magnetUri, expectedSize);
-  });
+  ipcMain.handle(
+    'torrent:add',
+    async (_event, magnetUri: string, expectedSize?: number, releaseInfo?: LibraryReleaseInfo) => {
+      const rdKey = settings.snapshot().realDebridApiKey;
+      const job = rdKey
+        ? await realDebrid.download(magnetUri, expectedSize)
+        : await torrentClient.add(magnetUri, expectedSize);
+      if (releaseInfo) {
+        await libraryService.onJobAdded(
+          job.infoHash,
+          job.savePath,
+          job.totalSize,
+          job.addedAt,
+          releaseInfo,
+        );
+      }
+      return job;
+    },
+  );
 
   ipcMain.handle('torrent:list', async () => torrentClient.list());
 
@@ -235,9 +239,12 @@ function registerIpc(): void {
     torrentClient.resume(infoHash),
   );
 
-  ipcMain.handle('torrent:remove', async (_event, infoHash: string, deleteFiles?: boolean) =>
-    torrentClient.remove(infoHash, deleteFiles),
-  );
+  ipcMain.handle('torrent:remove', async (_event, infoHash: string, deleteFiles?: boolean) => {
+    await torrentClient.remove(infoHash, deleteFiles);
+    if (libraryService.getEntry(infoHash)?.installStatus === 'downloading') {
+      await libraryService.remove(infoHash);
+    }
+  });
 
   ipcMain.handle('plugins:get-ui', () => pluginHost.getUi());
   ipcMain.handle('plugins:get-renderer-paths', () => pluginHost.getRendererPaths());
@@ -277,6 +284,38 @@ function registerIpc(): void {
     app.relaunch();
     app.exit(0);
   });
+
+  // Library
+  ipcMain.handle('library:list', (_event, page: number, perPage: number) =>
+    libraryService.list(page, perPage),
+  );
+  ipcMain.handle('library:update', async (_event, id: string, patch: Partial<LibraryEntry>) =>
+    libraryService.update(id, patch),
+  );
+  ipcMain.handle('library:remove', async (_event, id: string) => libraryService.remove(id));
+  ipcMain.handle('library:verify', async () => libraryService.verifyAll());
+  ipcMain.handle('library:pick-executable', async (_event, id: string): Promise<string | null> => {
+    const owner = mainWindow ?? undefined;
+    const result = await (owner
+      ? dialog.showOpenDialog(owner, {
+          title: 'Locate game executable',
+          filters: [{ name: 'Executable', extensions: ['exe'] }],
+          properties: ['openFile'],
+        })
+      : dialog.showOpenDialog({
+          title: 'Locate game executable',
+          filters: [{ name: 'Executable', extensions: ['exe'] }],
+          properties: ['openFile'],
+        }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const exePath = result.filePaths[0] ?? null;
+    if (exePath) await libraryService.update(id, { executablePath: exePath, installStatus: 'verified' });
+    return exePath;
+  });
+  ipcMain.handle('library:launch', async (_event, id: string) => {
+    const entry = libraryService.getEntry(id);
+    if (entry?.executablePath) await shell.openPath(entry.executablePath);
+  });
 }
 
 app.whenReady().then(async () => {
@@ -307,6 +346,9 @@ app.whenReady().then(async () => {
   ipcMain.on('update:install', () => quitAndInstall());
   await ensureServices();
   await torrentClient.init();
+  await libraryService.init();
+  await libraryService.verifyAll();
+  pluginHost.setLibraryService(libraryService);
   await pluginHost.load();
   trailerOrigin = await startTrailerServer();
   createWindow();
