@@ -279,7 +279,11 @@ export interface BridgeApi {
   // Torrent search + prerequisites
   searchTorrents(name: string, title: string): Promise<TorrentResult[]>;
   getGroupPrerequisites(group: string, releaseName: string): Promise<GroupPrerequisites>;
-  addTorrent(magnetUri: string, expectedSize?: number, releaseInfo?: LibraryReleaseInfo): Promise<DownloadJob>;
+  addTorrent(
+    magnetUri: string,
+    expectedSize?: number,
+    releaseInfo?: LibraryReleaseInfo,
+  ): Promise<DownloadJob>;
   // Download management — shown in UI
   listDownloads(): Promise<DownloadJob[]>;
   pauseDownload(infoHash: string): Promise<void>;

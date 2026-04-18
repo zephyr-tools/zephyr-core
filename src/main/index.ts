@@ -1,7 +1,13 @@
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
-import type { AppSettings, LibraryEntry, LibraryReleaseInfo, ReleaseListQuery, ScanStatus } from '@shared/types';
+import type {
+  AppSettings,
+  LibraryEntry,
+  LibraryReleaseInfo,
+  ReleaseListQuery,
+  ScanStatus,
+} from '@shared/types';
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import { checkForUpdate, initAutoUpdater, quitAndInstall } from './auto-updater.js';
 import { cachePaths } from './cache.js';
@@ -49,7 +55,9 @@ torrentClient.setOnComplete(async (job) => {
     // defaults already set above
   }
   torrentClient.updateExternal(job.infoHash, { scanStatus, scanInfo });
-  const entry = await libraryService.onJobComplete(job.infoHash, job.savePath).catch(() => undefined);
+  const entry = await libraryService
+    .onJobComplete(job.infoHash, job.savePath)
+    .catch(() => undefined);
   if (entry) pluginHost.notifyLibraryEntryComplete(entry);
   pluginHost.notifyDownloadComplete({ ...job, scanStatus, scanInfo });
 });
@@ -302,8 +310,9 @@ function registerIpc(): void {
   });
 
   // Library
-  ipcMain.handle('library:get', (_event, id: string): LibraryEntry | null =>
-    libraryService.getEntry(id) ?? null,
+  ipcMain.handle(
+    'library:get',
+    (_event, id: string): LibraryEntry | null => libraryService.getEntry(id) ?? null,
   );
   ipcMain.handle('library:list', (_event, page: number, perPage: number) =>
     libraryService.list(page, perPage),
@@ -374,7 +383,8 @@ function registerIpc(): void {
         }));
     if (result.canceled || result.filePaths.length === 0) return null;
     const exePath = result.filePaths[0] ?? null;
-    if (exePath) await libraryService.update(id, { executablePath: exePath, installStatus: 'verified' });
+    if (exePath)
+      await libraryService.update(id, { executablePath: exePath, installStatus: 'verified' });
     return exePath;
   });
   ipcMain.handle('library:launch', async (_event, id: string) => {

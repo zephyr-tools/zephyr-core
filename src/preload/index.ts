@@ -97,8 +97,7 @@ const api: BridgeApi = {
     info: LibraryReleaseInfo,
   ): Promise<{ located: boolean; alreadyInLibrary: boolean }> =>
     ipcRenderer.invoke('library:add-manual', id, info),
-  listLibrary: (page: number, perPage: number) =>
-    ipcRenderer.invoke('library:list', page, perPage),
+  listLibrary: (page: number, perPage: number) => ipcRenderer.invoke('library:list', page, perPage),
   updateLibraryEntry: (id: string, patch: Partial<LibraryEntry>) =>
     ipcRenderer.invoke('library:update', id, patch),
   removeLibraryEntry: (id: string): Promise<void> => ipcRenderer.invoke('library:remove', id),
@@ -106,7 +105,6 @@ const api: BridgeApi = {
     ipcRenderer.invoke('library:pick-executable', id),
   launchGame: (id: string): Promise<void> => ipcRenderer.invoke('library:launch', id),
   verifyLibrary: (): Promise<void> => ipcRenderer.invoke('library:verify'),
-
 };
 
 contextBridge.exposeInMainWorld('api', api);

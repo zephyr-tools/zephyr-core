@@ -10,9 +10,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type JSX, useState } from 'react';
-import { ArtworkImage } from './ArtworkImage';
 import { cn } from '@/lib/cn';
-import { formatSize, formatRelativeTime } from '@/lib/format';
+import { formatRelativeTime, formatSize } from '@/lib/format';
+import { ArtworkImage } from './ArtworkImage';
 
 const PER_PAGE = 20;
 
@@ -60,7 +60,9 @@ export function LibraryPage(): JSX.Element {
                 onLaunch={() => launch.mutate(entry.id)}
                 onLocate={() => locate.mutate(entry.id)}
                 onRemove={() => remove.mutate(entry.id)}
-                onShowInFolder={() => window.api.showItemInFolder(entry.executablePath ?? entry.savePath)}
+                onShowInFolder={() =>
+                  window.api.showItemInFolder(entry.executablePath ?? entry.savePath)
+                }
                 locating={locate.isPending && locate.variables === entry.id}
               />
             ))}
@@ -177,15 +179,24 @@ function LibraryRow({
 
 function StatusPill({ status }: { status: LibraryEntry['installStatus'] }): JSX.Element {
   const map: Record<LibraryEntry['installStatus'], { label: string; className: string }> = {
-    verified: { label: 'Verified', className: 'bg-emerald-950 text-emerald-400 border-emerald-900' },
+    verified: {
+      label: 'Verified',
+      className: 'bg-emerald-950 text-emerald-400 border-emerald-900',
+    },
     missing: { label: 'Missing', className: 'bg-amber-950 text-amber-400 border-amber-900' },
     unlocated: { label: 'Unlocated', className: 'bg-zinc-900 text-zinc-400 border-zinc-800' },
-    downloading: { label: 'Downloading', className: 'bg-brand-950 text-brand-400 border-brand-900' },
+    downloading: {
+      label: 'Downloading',
+      className: 'bg-brand-950 text-brand-400 border-brand-900',
+    },
   };
   const { label, className } = map[status];
   return (
     <span
-      className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium flex-shrink-0', className)}
+      className={cn(
+        'rounded-full border px-2 py-0.5 text-[10px] font-medium flex-shrink-0',
+        className,
+      )}
     >
       {label}
     </span>

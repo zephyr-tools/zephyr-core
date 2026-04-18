@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { InstallStatus, LibraryEntry, LibraryListResult, LibraryReleaseInfo } from '@shared/types';
+import type {
+  InstallStatus,
+  LibraryEntry,
+  LibraryListResult,
+  LibraryReleaseInfo,
+} from '@shared/types';
 import { app } from 'electron';
 
 export class LibraryService {

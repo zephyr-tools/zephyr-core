@@ -346,10 +346,7 @@ export class PluginHost {
           ),
         ]);
       } catch (err) {
-        console.error(
-          `[Plugin:${pluginId}] onUninstall handler threw:`,
-          (err as Error).message,
-        );
+        console.error(`[Plugin:${pluginId}] onUninstall handler threw:`, (err as Error).message);
       }
     }
 
