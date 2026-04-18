@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { InstallStatus, LibraryEntry, LibraryListResult, LibraryReleaseInfo } from '@shared/types';
@@ -67,14 +67,12 @@ export class LibraryService {
   async onJobComplete(infoHash: string, savePath: string): Promise<LibraryEntry | undefined> {
     const entry = this.entries.get(infoHash);
     if (!entry) return undefined;
-    const executablePath = entry.executablePath;
-    const installStatus: InstallStatus = executablePath ? 'verified' : 'unlocated';
+    const installStatus: InstallStatus = entry.executablePath ? 'verified' : 'unlocated';
     const updated: LibraryEntry = {
       ...entry,
       completedAt: Date.now(),
       savePath,
       installStatus,
-      executablePath,
     };
     this.entries.set(infoHash, updated);
     await this.save();
@@ -93,67 +91,16 @@ export class LibraryService {
     await this.save();
   }
 
-  /** Re-checks all executable paths and attempts discovery for unlocated entries. */
   async verifyAll(): Promise<void> {
     let changed = false;
     for (const [id, entry] of this.entries) {
-      if (entry.installStatus === 'downloading') continue;
-
-      if (entry.executablePath) {
-        const exists = existsSync(entry.executablePath);
-        const next: InstallStatus = exists ? 'verified' : 'missing';
-        if (next !== entry.installStatus) {
-          this.entries.set(id, { ...entry, installStatus: next });
-          changed = true;
-        }
-      } else if (entry.installStatus === 'unlocated') {
-        const found = this.discoverExecutable(entry.savePath);
-        if (found) {
-          this.entries.set(id, { ...entry, executablePath: found, installStatus: 'verified' });
-          changed = true;
-        }
+      if (!entry.executablePath || entry.installStatus === 'downloading') continue;
+      const next: InstallStatus = existsSync(entry.executablePath) ? 'verified' : 'missing';
+      if (next !== entry.installStatus) {
+        this.entries.set(id, { ...entry, installStatus: next });
+        changed = true;
       }
     }
     if (changed) await this.save();
-  }
-
-  private discoverExecutable(savePath: string): string | undefined {
-    if (!savePath || !existsSync(savePath)) return undefined;
-    try {
-      const exes = this.scanForExes(savePath, 0);
-      if (exes.length === 0) return undefined;
-      if (exes.length === 1) return exes[0];
-      const SKIP = /setup|install|unins|redist|vcredist|directx|dotnet|dxsetup/i;
-      const candidates = exes.filter((e) => !SKIP.test(path.basename(e)));
-      const pool = candidates.length > 0 ? candidates : exes;
-      // Pick the largest by file size — the game launcher is almost always biggest
-      return pool.reduce((a, b) => {
-        try {
-          return statSync(a).size >= statSync(b).size ? a : b;
-        } catch {
-          return a;
-        }
-      });
-    } catch {
-      return undefined;
-    }
-  }
-
-  private scanForExes(dir: string, depth: number): string[] {
-    if (depth > 3) return [];
-    try {
-      const results: string[] = [];
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          results.push(...this.scanForExes(full, depth + 1));
-        } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.exe')) {
-          results.push(full);
-        }
-      }
-      return results;
-    } catch {
-      return [];
-    }
   }
 }
