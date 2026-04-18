@@ -331,10 +331,7 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       qc.invalidateQueries({ queryKey: ['plugins-list'] });
       qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
-      // Surface to the banner AND rethrow so the useMutation layer enters
-      // an error state (installMutation.isError/.error become useful).
       setActionError((err as Error).message);
-      throw err;
     }
   }
 
@@ -349,12 +346,15 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
       setActionError((err as Error).message);
-      throw err;
     }
   }
 
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+
   async function runRemove(pluginId: string): Promise<void> {
+    if (removingIds.has(pluginId)) return;
     setActionError(null);
+    setRemovingIds((s) => new Set(s).add(pluginId));
     try {
       await window.api.removePlugin(pluginId);
       setRestartNeeded(true);
@@ -362,6 +362,12 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
       setActionError((err as Error).message);
+    } finally {
+      setRemovingIds((s) => {
+        const n = new Set(s);
+        n.delete(pluginId);
+        return n;
+      });
     }
   }
 
@@ -422,11 +428,12 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
                 <button
                   type="button"
                   onClick={() => void runRemove(p.id)}
-                  className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-red-900/60 hover:bg-red-950/30 hover:text-red-200"
+                  disabled={removingIds.has(p.id)}
+                  className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300 hover:border-red-900/60 hover:bg-red-950/30 hover:text-red-200 disabled:cursor-wait disabled:opacity-60"
                   title={`Remove ${p.id}`}
                 >
                   <Trash2 className="h-3 w-3" />
-                  Remove
+                  {removingIds.has(p.id) ? 'Removing…' : 'Remove'}
                 </button>
               </li>
             ))}
@@ -552,7 +559,6 @@ function PluginSettingField({
             try {
               await onSave(next);
             } catch (err) {
-              // Save failed — revert the UI so it matches the persisted value.
               console.error(`[Plugin:${spec.pluginId}] toggle save failed:`, err);
               setToggle(prev);
             } finally {
@@ -581,7 +587,6 @@ function PluginSettingField({
             try {
               await onSave(match?.value ?? next);
             } catch (err) {
-              // Save failed — revert the dropdown to the last persisted choice.
               console.error(`[Plugin:${spec.pluginId}] select save failed:`, err);
               setDraft(prev);
             } finally {
@@ -603,30 +608,19 @@ function PluginSettingField({
   async function commit(): Promise<void> {
     if (draft === initialStr) return;
 
-    // Reject unparseable numeric input by reverting the draft to the last
-    // persisted value instead of silently discarding the user's input — they
-    // should see the field snap back so they know the value wasn't accepted.
-    if (spec.type === 'number' && draft.trim() !== '') {
-      const n = Number(draft);
-      if (Number.isNaN(n)) {
-        setDraft(initialStr);
-        return;
-      }
+    // Reject unparseable numeric input by snapping the field back to the last
+    // valid value — silently swallowing it would confuse the user.
+    if (spec.type === 'number' && draft.trim() !== '' && Number.isNaN(Number(draft))) {
+      setDraft(initialStr);
+      return;
     }
+
+    const next = spec.type === 'number' ? (draft.trim() === '' ? null : Number(draft)) : draft;
 
     setSaving(true);
     try {
-      if (spec.type === 'number') {
-        if (draft.trim() === '') {
-          await onSave(null);
-        } else {
-          await onSave(Number(draft));
-        }
-      } else {
-        await onSave(draft);
-      }
+      await onSave(next);
     } catch (err) {
-      // Save failed — revert the draft so the input matches the persisted value.
       console.error(`[Plugin:${spec.pluginId}] save failed:`, err);
       setDraft(initialStr);
     } finally {

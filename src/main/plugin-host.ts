@@ -65,7 +65,7 @@ export class PluginHost {
     string /* pluginId */,
     Map<string /* key */, Array<(value: unknown) => void>>
   >();
-  private unregisteredSetWarnings = new Set<string>(); // `${pluginId}:${key}` — one warning per pair
+  private unregisteredSetWarnings = new Set<string>(); // `${pluginId}:${key}`, warned-once
   private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
   private loadedPlugins: LoadedPlugin[] = [];
@@ -85,8 +85,6 @@ export class PluginHost {
       return;
     }
 
-    // Plugins are always directories (matches the ZIP distribution format).
-    // Loose files at the pluginsDir root are ignored.
     for (const entry of entries) {
       const fullPath = path.join(this.pluginsDir, entry);
 
@@ -124,13 +122,7 @@ export class PluginHost {
     }
   }
 
-  /**
-   * Install a plugin from an HTTPS URL. The URL must point to a ZIP archive
-   * matching the same layout `installFromZip` requires — exactly one
-   * top-level directory with a valid plugin ID, containing `index.js`.
-   * The fetched bytes are written to a temp file and delegated to
-   * `installFromZip` so validation, extraction, and rollback stay unified.
-   */
+  /** Fetch an HTTPS URL pointing to a plugin ZIP, then delegate to `installFromZip`. */
   async installFromUrl(url: string): Promise<string> {
     if (!/^https:\/\//.test(url)) throw new Error('Plugin URL must use HTTPS');
     try {
@@ -149,8 +141,6 @@ export class PluginHost {
       );
     }
 
-    // Write to a temp file and reuse installFromZip so validation, extraction,
-    // size checks, and rollback behave identically to a local ZIP install.
     const tmpPath = path.join(
       app.getPath('temp'),
       `zephyr-plugin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.zip`,
@@ -164,8 +154,6 @@ export class PluginHost {
   }
 
   getUi(): PluginUi {
-    // Hydrate settings with current values so the renderer can render inputs
-    // bound to persisted state without another round-trip per field.
     return {
       detailButtons: this.ui.detailButtons,
       settings: this.ui.settings.map((s) => ({
@@ -176,15 +164,10 @@ export class PluginHost {
   }
 
   /**
-   * Install a plugin from a local .zip file. The zip must contain exactly one
-   * top-level directory whose name matches `^[a-z0-9][a-z0-9-]*$` and includes
-   * an `index.js`. Path traversal and absolute paths in entries are rejected.
-   * If a plugin with the same id is already installed, its `settings.json` is
-   * preserved across the reinstall.
-   *
-   * Like `installFromUrl`, this both extracts to disk and loads the plugin
-   * into the running main process. Renderer UI (buttons, settings fields)
-   * still requires a restart to appear.
+   * Extract a plugin ZIP into `userData/plugins/<id>/` and load it. The ZIP
+   * must contain one top-level directory (the plugin id) with an `index.js`
+   * inside; path traversal and absolute paths are rejected. An existing
+   * `settings.json` is preserved across reinstalls.
    */
   async installFromZip(zipPath: string): Promise<string> {
     let stat: Awaited<ReturnType<typeof fs.stat>>;
@@ -209,7 +192,6 @@ export class PluginHost {
       throw new Error(`Invalid ZIP: ${(err as Error).message}`);
     }
 
-    // Validate entry paths + identify the single top-level directory.
     const fileEntries = Object.entries(unzipped).filter(([name]) => !name.endsWith('/'));
     if (fileEntries.length === 0) throw new Error('ZIP is empty');
 
@@ -248,25 +230,21 @@ export class PluginHost {
     const pluginId = rootDir;
     const pluginDir = path.join(this.pluginsDir, pluginId);
 
-    // Preserve any existing settings.json across a reinstall so the user
-    // doesn't have to re-enter API keys / preferences.
+    // Snapshot the existing settings so a reinstall doesn't wipe user config.
     let preservedSettings: Buffer | null = null;
     try {
       preservedSettings = await fs.readFile(path.join(pluginDir, 'settings.json'));
-    } catch {
-      // didn't exist
-    }
+    } catch {}
 
     await fs.mkdir(pluginDir, { recursive: true });
 
-    // Track what we extracted so we can roll back on failure.
     const extractedPaths: string[] = [];
     try {
       for (const [entryName, content] of fileEntries) {
         const relative = entryName.slice(rootDir.length + 1);
         if (!relative) continue;
         const destPath = path.join(pluginDir, relative);
-        // Defense in depth: ensure resolved path stays inside pluginDir.
+        // Defense in depth: refuse paths that escape the plugin dir.
         if (!destPath.startsWith(pluginDir + path.sep) && destPath !== pluginDir) {
           throw new Error(`Unsafe entry resolved outside plugin dir: "${entryName}"`);
         }
@@ -281,7 +259,6 @@ export class PluginHost {
 
       await this._loadPlugin(pluginId, path.join(pluginDir, 'index.js'), { throwOnError: true });
     } catch (err) {
-      // Remove whatever we wrote; if there was no prior install, remove the dir itself.
       if (preservedSettings == null) {
         await fs.rm(pluginDir, { recursive: true, force: true }).catch(() => undefined);
       } else {
@@ -295,16 +272,11 @@ export class PluginHost {
     return pluginId;
   }
 
-  /**
-   * Remove a plugin's files from disk. Does NOT unload the plugin from the
-   * running main process — the user must restart the app for IPC handlers
-   * and UI contributions to drop. Its persisted `settings.json` is also
-   * deleted (removal means removal).
-   */
+  /** Delete a plugin's directory. Running IPC handlers stay live until restart. */
   async removePlugin(pluginId: string): Promise<void> {
     if (!VALID_PLUGIN_ID.test(pluginId)) throw new Error('Invalid plugin id');
     const pluginDir = path.join(this.pluginsDir, pluginId);
-    // Safety: verify the resolved path is still inside pluginsDir.
+    // Defense in depth — VALID_PLUGIN_ID already blocks traversal.
     if (!pluginDir.startsWith(this.pluginsDir + path.sep)) {
       throw new Error('Plugin path is outside the plugins directory');
     }
@@ -324,12 +296,7 @@ export class PluginHost {
     await this._applySetting(pluginId, key, value);
   }
 
-  /**
-   * Single write path for plugin settings. Called both by the plugin-facing
-   * `zephyr.settings.set(...)` and by the user-facing `plugins:set-setting`
-   * IPC handler. Updates the cache, persists to disk, then fires any
-   * `onChange` listeners registered for (pluginId, key).
-   */
+  /** Single write path shared by `zephyr.settings.set` and `plugins:set-setting`. */
   private async _applySetting(pluginId: string, key: string, value: unknown): Promise<void> {
     const store = this.settingsCache.get(pluginId) ?? {};
     store[key] = value;
@@ -421,13 +388,8 @@ export class PluginHost {
     return {
       ui: {
         addDetailButton(spec) {
-          // Store the bare channel name. The `plugin:` prefix is applied in
-          // the preload bridge when the renderer invokes.
-          host.ui.detailButtons.push({
-            label: spec.label,
-            action: spec.action,
-            icon: spec.icon,
-          });
+          // `action` is the bare channel; preload prefixes `plugin:` on invoke.
+          host.ui.detailButtons.push({ ...spec });
         },
       },
       ipc: {
@@ -442,18 +404,7 @@ export class PluginHost {
       },
       settings: {
         register(spec) {
-          host.ui.settings.push({
-            key: spec.key,
-            label: spec.label,
-            type: spec.type,
-            options: spec.options,
-            min: spec.min,
-            max: spec.max,
-            step: spec.step,
-            hint: spec.hint,
-            pluginId,
-            value: null,
-          });
+          host.ui.settings.push({ ...spec, pluginId, value: null });
         },
         get(key) {
           return host.settingsCache.get(pluginId)?.[key] ?? null;
@@ -476,9 +427,9 @@ export class PluginHost {
             byKey = new Map();
             host.settingChangeHandlers.set(pluginId, byKey);
           }
-          const existing = byKey.get(key) ?? [];
-          existing.push(handler);
-          byKey.set(key, existing);
+          const handlers = byKey.get(key) ?? [];
+          handlers.push(handler);
+          byKey.set(key, handlers);
         },
       },
       hooks: {

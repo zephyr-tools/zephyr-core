@@ -13,7 +13,8 @@
  *   directory basename. Validated against ^[a-z0-9][a-z0-9-]*$ — same rule
  *   PluginHost enforces on install.
  * - Copies the plugin dir into the zip under `<pluginId>/`, excluding
- *   dev-only files (node_modules, src, package.json, build configs, etc.).
+ *   dev-only files (node_modules, package.json, build configs, etc.). `src/`
+ *   is intentionally included so plugins that skip bundling still work.
  * - index.js is required; missing it is a packaging error.
  * - Writes to examples/dist/<pluginId>.zip by default.
  */
@@ -76,7 +77,7 @@ if (existsSync(pkgJsonPath)) {
 }
 
 const pluginId = flags.get('id') ?? manifestId ?? basename(pluginDir);
-if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(pluginId)) {
+if (!/^[a-z0-9][a-z0-9-]*$/.test(pluginId)) {
   console.error(
     `Invalid plugin ID "${pluginId}". Must match ^[a-z0-9][a-z0-9-]*$ (lowercase letters, digits, hyphens).`,
   );
@@ -99,14 +100,8 @@ if (!existsSync(join(pluginDir, 'index.js'))) {
   process.exit(1);
 }
 
-// ── File selection ────────────────────────────────────────────────────────────
-// Directories and files excluded from the packaged output.
-//
-// Note: `src/` is intentionally NOT denied, because a plugin's runtime code
-// may import from `./src/...` directly (plugins that skip bundling). Build
-// artifacts like `renderer.js` sit at the plugin root regardless, so keeping
-// `src/` in the zip costs a few KB at worst when the template bundles its
-// renderer — but breaks plugins that ship source-as-runtime if excluded.
+// Dev-only files excluded from the packaged output. `src/` is kept so plugins
+// that import runtime code from there (e.g. non-bundled plugins) still work.
 const DENY_NAMES = new Set([
   'node_modules',
   'dist',

@@ -5,13 +5,9 @@ interface UiState {
   search: string;
   category: string;
   page: number;
-  /** Release currently open in the DetailPage. Cleared when the user hits Back. */
+  /** Release currently open in the DetailPage; cleared on Back. */
   selectedRelease: Release | null;
-  /**
-   * Most recent non-null release the user has opened this session. Persists
-   * through DetailPage back navigation so plugin routes can read it as
-   * "last viewed" context without losing it when the user returns to the grid.
-   */
+  /** Most recent release opened this session; sticky so plugin routes keep context. */
   lastViewedRelease: Release | null;
   pluginPage: string | null;
   setSearch: (s: string) => void;
@@ -32,8 +28,6 @@ export const useUiStore = create<UiState>((set) => ({
   setSearch: (search) => set({ search, page: 1 }),
   setCategory: (category) => set({ category, page: 1 }),
   setPage: (page) => set({ page }),
-  // Opening a release updates both; Back (setSelectedRelease(null)) only
-  // clears the currently-open one so plugin routes retain the reference.
   setSelectedRelease: (selectedRelease) =>
     set(
       selectedRelease

@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Notes plugin template — demonstrates the full renderer API surface:
-//   - detailSections   → a textarea per release, below torrent results
-//   - routes           → a "My Notes" page listing every saved note
-//   - IPC round-trips  → window.api.invokePlugin(...) ↔ zephyr.ipc.handle(...)
-//   - UI Kit classes   → `.zephyr-*` classes + `--zephyr-*` CSS variables
-//
-// Storage lives entirely in the main process: notes are persisted via
-// zephyr.settings.set() (see index.js). The renderer never touches disk.
+// Notes plugin — exercises detailSections, routes, IPC round-trips, and the
+// `.zephyr-*` UI kit. Storage is owned by index.js; the renderer only drives IPC.
 
 function useNotes() {
   const [notes, setNotes] = useState(/** @type {Record<string, { text: string; updatedAt: number }>} */ ({}));
@@ -19,9 +13,7 @@ function useNotes() {
       setNotes(next ?? {});
     } catch (err) {
       console.error('[Notes] list-notes failed:', err);
-      // Leave previous notes intact; caller can retry via refresh().
     } finally {
-      // Always clear loading so the UI doesn't hang on an IPC rejection.
       setLoading(false);
     }
   }, []);
@@ -33,9 +25,7 @@ function useNotes() {
   return { notes, loading, refresh };
 }
 
-// ── Detail section ───────────────────────────────────────────────────────────
-// Renders below torrent results on a release detail page. Loads the existing
-// note for the release (if any), lets the user edit + save.
+// Detail section — renders below torrent results.
 
 function NotesSection({ release }) {
   const { notes, refresh } = useNotes();
@@ -45,10 +35,17 @@ function NotesSection({ release }) {
     /** @type {'idle' | 'saving' | 'saved' | 'error'} */ ('idle'),
   );
   const [errorMessage, setErrorMessage] = useState('');
-
-  // Tracks the post-save "settle" timer so rapid successive saves don't race:
-  // each new save cancels the previous timer before starting a new one.
+  // Stored in a ref so rapid successive saves can cancel the previous timer
+  // before scheduling a new one — otherwise a stale timer flips status to
+  // 'idle' mid-request.
   const saveTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+
+  function clearSaveTimer() {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     setDraft(existing?.text ?? '');
@@ -56,23 +53,10 @@ function NotesSection({ release }) {
     setErrorMessage('');
   }, [release.id, existing?.text]);
 
-  // Clear the pending timer on unmount so it can't fire against a dead tree.
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current !== null) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-    };
-  }, []);
+  useEffect(() => clearSaveTimer, []);
 
   async function save() {
-    // Cancel any trailing "settle back to idle" timer from a previous save
-    // so it can't overwrite the status of the save we're about to start.
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
+    clearSaveTimer();
     setStatus('saving');
     setErrorMessage('');
     try {
@@ -87,8 +71,6 @@ function NotesSection({ release }) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setStatus('error');
     } finally {
-      // Reset status after a beat so the button becomes interactive again
-      // regardless of success or failure.
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
         setStatus('idle');
@@ -137,11 +119,8 @@ function NotesSection({ release }) {
   );
 }
 
-// ── Full-page route ──────────────────────────────────────────────────────────
-// Opens from the header nav button. Lists every saved note across all
-// releases. `release` is whichever release the user most recently viewed
-// (or undefined if none yet this session) — used here to highlight the
-// current one.
+// Full-page route — opens from the header nav. `release` is the last-viewed
+// one this session (or undefined), used here to highlight the active note.
 
 function NotesPage({ release }) {
   const { notes, loading, refresh } = useNotes();
@@ -218,8 +197,6 @@ function NotesPage({ release }) {
     </div>
   );
 }
-
-// ── Exports ──────────────────────────────────────────────────────────────────
 
 export const detailSections = [
   {
