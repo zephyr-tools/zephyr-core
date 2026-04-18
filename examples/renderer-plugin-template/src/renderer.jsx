@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Notes plugin template — demonstrates the full renderer API surface:
 //   - detailSections   → a textarea per release, below torrent results
@@ -14,9 +14,16 @@ function useNotes() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const next = await window.api.invokePlugin('my-plugin:list-notes');
-    setNotes(next ?? {});
-    setLoading(false);
+    try {
+      const next = await window.api.invokePlugin('my-plugin:list-notes');
+      setNotes(next ?? {});
+    } catch (err) {
+      console.error('[Notes] list-notes failed:', err);
+      // Leave previous notes intact; caller can retry via refresh().
+    } finally {
+      // Always clear loading so the UI doesn't hang on an IPC rejection.
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -39,13 +46,33 @@ function NotesSection({ release }) {
   );
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Tracks the post-save "settle" timer so rapid successive saves don't race:
+  // each new save cancels the previous timer before starting a new one.
+  const saveTimerRef = useRef(/** @type {ReturnType<typeof setTimeout> | null} */ (null));
+
   useEffect(() => {
     setDraft(existing?.text ?? '');
     setStatus('idle');
     setErrorMessage('');
   }, [release.id, existing?.text]);
 
+  // Clear the pending timer on unmount so it can't fire against a dead tree.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, []);
+
   async function save() {
+    // Cancel any trailing "settle back to idle" timer from a previous save
+    // so it can't overwrite the status of the save we're about to start.
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     setStatus('saving');
     setErrorMessage('');
     try {
@@ -62,7 +89,10 @@ function NotesSection({ release }) {
     } finally {
       // Reset status after a beat so the button becomes interactive again
       // regardless of success or failure.
-      setTimeout(() => setStatus('idle'), 1200);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        setStatus('idle');
+      }, 1200);
     }
   }
 

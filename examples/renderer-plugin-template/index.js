@@ -25,11 +25,19 @@ export default {
     }
 
     function readNotes() {
+      // Use a null-prototype object so release IDs like "__proto__" or
+      // "constructor" can't mutate Object.prototype or collide with inherited
+      // properties. Standard hygiene for dictionaries keyed by untrusted input.
+      const notes = /** @type {Record<string, { text: string; updatedAt: number }>} */ (
+        Object.create(null)
+      );
       const raw = zephyr.settings.get('notes');
-      if (raw == null || typeof raw !== 'object') return {};
-      return /** @type {Record<string, { text: string; updatedAt: number }>} */ ({
-        ...raw,
-      });
+      if (raw == null || typeof raw !== 'object') return notes;
+      // Copy only own enumerable properties — skip any inherited prototype noise.
+      for (const [key, value] of Object.entries(/** @type {object} */ (raw))) {
+        notes[key] = /** @type {{ text: string; updatedAt: number }} */ (value);
+      }
+      return notes;
     }
 
     zephyr.ipc.handle('my-plugin:list-notes', () => readNotes());

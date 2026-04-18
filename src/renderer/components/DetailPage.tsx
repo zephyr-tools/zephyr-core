@@ -230,6 +230,14 @@ export function DetailPage({ release, onBack, onOpenDownloads }: DetailPageProps
   const [actionErrors, setActionErrors] = useState<Set<string>>(new Set());
   const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
 
+  // Reset per-button state when the user switches to a different release so
+  // an error or pending flag from release A doesn't bleed onto release B.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on release.id — the setters don't read release.id, but the effect's purpose is to re-run on release changes.
+  useEffect(() => {
+    setActionErrors(new Set());
+    setPendingActions(new Set());
+  }, [release.id]);
+
   async function handleActionButton(action: string): Promise<void> {
     // Guard against double-clicks / re-entry: if a call for this channel is
     // already in flight, ignore the new click.

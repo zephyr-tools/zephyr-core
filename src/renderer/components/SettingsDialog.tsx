@@ -331,7 +331,10 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       qc.invalidateQueries({ queryKey: ['plugins-list'] });
       qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
+      // Surface to the banner AND rethrow so the useMutation layer enters
+      // an error state (installMutation.isError/.error become useful).
       setActionError((err as Error).message);
+      throw err;
     }
   }
 
@@ -346,6 +349,7 @@ function PluginsTab({ specs }: { specs: PluginSettingSpec[] }): JSX.Element {
       qc.invalidateQueries({ queryKey: ['plugin-ui'] });
     } catch (err) {
       setActionError((err as Error).message);
+      throw err;
     }
   }
 
@@ -541,11 +545,16 @@ function PluginSettingField({
           checked={toggle}
           disabled={saving}
           onChange={async (e) => {
+            const prev = toggle;
             const next = e.target.checked;
             setToggle(next);
             setSaving(true);
             try {
               await onSave(next);
+            } catch (err) {
+              // Save failed — revert the UI so it matches the persisted value.
+              console.error(`[Plugin:${spec.pluginId}] toggle save failed:`, err);
+              setToggle(prev);
             } finally {
               setSaving(false);
             }
@@ -564,12 +573,17 @@ function PluginSettingField({
           value={draft}
           disabled={saving}
           onChange={async (e) => {
+            const prev = draft;
             const next = e.target.value;
             setDraft(next);
             const match = options.find((o) => String(o.value) === next);
             setSaving(true);
             try {
               await onSave(match?.value ?? next);
+            } catch (err) {
+              // Save failed — revert the dropdown to the last persisted choice.
+              console.error(`[Plugin:${spec.pluginId}] select save failed:`, err);
+              setDraft(prev);
             } finally {
               setSaving(false);
             }
@@ -588,19 +602,33 @@ function PluginSettingField({
 
   async function commit(): Promise<void> {
     if (draft === initialStr) return;
+
+    // Reject unparseable numeric input by reverting the draft to the last
+    // persisted value instead of silently discarding the user's input — they
+    // should see the field snap back so they know the value wasn't accepted.
+    if (spec.type === 'number' && draft.trim() !== '') {
+      const n = Number(draft);
+      if (Number.isNaN(n)) {
+        setDraft(initialStr);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       if (spec.type === 'number') {
         if (draft.trim() === '') {
           await onSave(null);
         } else {
-          const n = Number(draft);
-          if (Number.isNaN(n)) return;
-          await onSave(n);
+          await onSave(Number(draft));
         }
       } else {
         await onSave(draft);
       }
+    } catch (err) {
+      // Save failed — revert the draft so the input matches the persisted value.
+      console.error(`[Plugin:${spec.pluginId}] save failed:`, err);
+      setDraft(initialStr);
     } finally {
       setSaving(false);
     }
