@@ -6,6 +6,7 @@ const DEFAULTS: AppSettings = {
   youtubeApiKey: process.env.YOUTUBE_API_KEY ?? null,
   realDebridApiKey: null,
   virusTotalApiKey: null,
+  autoStartEnabled: false,
 };
 
 export class SettingsStore {
@@ -21,7 +22,7 @@ export class SettingsStore {
       for (const key of Object.keys(stored) as (keyof AppSettings)[]) {
         const v = stored[key];
         if (v != null && v !== '') {
-          this.current[key] = v;
+          (this.current as unknown as Record<string, unknown>)[key] = v;
         }
       }
     });

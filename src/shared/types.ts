@@ -70,6 +70,7 @@ export interface AppSettings {
   youtubeApiKey: string | null;
   realDebridApiKey: string | null;
   virusTotalApiKey: string | null;
+  autoStartEnabled: boolean;
 }
 
 export interface GameTrailer {

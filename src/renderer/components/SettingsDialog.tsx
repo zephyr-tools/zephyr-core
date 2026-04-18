@@ -6,6 +6,7 @@ import {
   FolderUp,
   Info,
   Key,
+  Power,
   Puzzle,
   RefreshCw,
   RotateCw,
@@ -46,6 +47,11 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): JSX.Elem
       qc.invalidateQueries({ queryKey: ['releases'] });
       onClose();
     },
+  });
+
+  const saveImmediate = useMutation({
+    mutationFn: (patch: Partial<AppSettings>) => window.api.setSettings(patch),
+    onSuccess: (next) => qc.setQueryData(['settings'], next),
   });
 
   const clearCache = useMutation({
@@ -198,6 +204,35 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps): JSX.Elem
             <PluginsTab specs={specs.settings} />
           ) : (
             <div className="flex flex-col gap-4">
+              <Field
+                icon={<Power className="h-4 w-4 text-zinc-500" />}
+                label="Start with Windows"
+                hint="Launch Zephyr automatically when you log in."
+              >
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft?.autoStartEnabled ?? false}
+                  onClick={() => {
+                    if (!draft) return;
+                    const next = !draft.autoStartEnabled;
+                    setDraft({ ...draft, autoStartEnabled: next });
+                    saveImmediate.mutate({ autoStartEnabled: next });
+                  }}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none',
+                    (draft?.autoStartEnabled ?? false) ? 'bg-brand-600' : 'bg-zinc-700',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                      (draft?.autoStartEnabled ?? false) ? 'translate-x-4' : 'translate-x-0',
+                    )}
+                  />
+                </button>
+              </Field>
+
               <Field icon={<Info className="h-4 w-4 text-zinc-500" />} label="Current version">
                 <span className="font-mono text-sm text-zinc-300">v{appVersion.data ?? '…'}</span>
               </Field>

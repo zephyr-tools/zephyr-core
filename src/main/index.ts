@@ -148,6 +148,11 @@ async function startTrailerServer(): Promise<string | null> {
   });
 }
 
+function applyLoginItemSettings(s: AppSettings): void {
+  if (isDev) return;
+  app.setLoginItemSettings({ openAtLogin: s.autoStartEnabled });
+}
+
 function registerIpc(): void {
   ipcMain.handle('predb:list', async (_event, query: ReleaseListQuery) => {
     await ensureServices();
@@ -174,6 +179,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:set', async (_event, patch: Partial<AppSettings>) => {
     const next = await settings.set(patch);
     await ensureServices();
+    applyLoginItemSettings(next);
     return next;
   });
 
@@ -355,6 +361,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('update:check', () => (isDev ? Promise.resolve() : checkForUpdate()));
   ipcMain.on('update:install', () => quitAndInstall());
   await ensureServices();
+  applyLoginItemSettings(settings.snapshot());
   await torrentClient.init();
   await libraryService.init();
   await libraryService.verifyAll();
