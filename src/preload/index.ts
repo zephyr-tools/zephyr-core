@@ -103,3 +103,9 @@ const api: BridgeApi = {
 };
 
 contextBridge.exposeInMainWorld('api', api);
+
+ipcRenderer.on('console:forward', (_event, level: string, msg: string) => {
+  if (level === 'error') console.error('[main]', msg);
+  else if (level === 'warn') console.warn('[main]', msg);
+  else console.log('[main]', msg);
+});

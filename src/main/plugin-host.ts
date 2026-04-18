@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
+  AppSettings,
   DownloadJob,
   LibraryEntry,
   LibraryListResult,
@@ -31,6 +32,11 @@ interface PluginSettingRegisterSpec {
 interface LibraryAccessor {
   list(page?: number, perPage?: number): LibraryListResult;
   getEntry(id: string): LibraryEntry | undefined;
+}
+
+/** Synchronous snapshot of the app's persisted settings. */
+interface AppSettingsAccessor {
+  snapshot(): AppSettings;
 }
 
 interface ZephyrAPI {
@@ -65,6 +71,11 @@ interface ZephyrAPI {
     /** List all library entries, newest first. Paginated — defaults to page 1, 100 per page. */
     list(page?: number, perPage?: number): LibraryListResult;
   };
+  /** Read-only access to the app's persisted settings (API keys, etc.). */
+  app: {
+    /** Synchronous snapshot of the current app settings. Always reflects the latest persisted values. */
+    getSettings(): AppSettings;
+  };
 }
 
 type PluginModule = {
@@ -94,6 +105,7 @@ export class PluginHost {
   private loadedPlugins: LoadedPlugin[] = [];
   private rendererUrls = new Map<string, string>(); // pluginId -> file:// URL
   private libraryAccessor: LibraryAccessor | null = null;
+  private appSettingsAccessor: AppSettingsAccessor | null = null;
 
   constructor() {
     this.pluginsDir = path.join(app.getPath('userData'), 'plugins');
@@ -360,6 +372,10 @@ export class PluginHost {
     this.libraryAccessor = accessor;
   }
 
+  setAppSettingsAccessor(accessor: AppSettingsAccessor): void {
+    this.appSettingsAccessor = accessor;
+  }
+
   notifyDownloadComplete(job: DownloadJob): void {
     for (const handler of this.downloadCompleteHandlers) {
       try {
@@ -498,6 +514,18 @@ export class PluginHost {
               total: 0,
               page: page ?? 1,
               perPage: perPage ?? 100,
+            }
+          );
+        },
+      },
+      app: {
+        getSettings() {
+          return (
+            host.appSettingsAccessor?.snapshot() ?? {
+              geminiApiKey: null,
+              youtubeApiKey: null,
+              realDebridApiKey: null,
+              virusTotalApiKey: null,
             }
           );
         },

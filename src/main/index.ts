@@ -94,6 +94,16 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());
 
+  if (isDev) {
+    for (const level of ['log', 'warn', 'error'] as const) {
+      const orig = console[level].bind(console);
+      console[level] = (...args: unknown[]) => {
+        orig(...args);
+        mainWindow?.webContents.send('console:forward', level, args.map(String).join(' '));
+      };
+    }
+  }
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
@@ -349,6 +359,7 @@ app.whenReady().then(async () => {
   await libraryService.init();
   await libraryService.verifyAll();
   pluginHost.setLibraryService(libraryService);
+  pluginHost.setAppSettingsAccessor(settings);
   await pluginHost.load();
   trailerOrigin = await startTrailerServer();
   createWindow();

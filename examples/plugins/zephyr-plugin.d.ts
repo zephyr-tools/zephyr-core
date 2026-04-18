@@ -222,6 +222,18 @@ export interface ZephyrLibraryApi {
   list(page?: number, perPage?: number): LibraryListResult;
 }
 
+export interface AppSettings {
+  geminiApiKey: string | null;
+  youtubeApiKey: string | null;
+  realDebridApiKey: string | null;
+  virusTotalApiKey: string | null;
+}
+
+export interface ZephyrAppApi {
+  /** Synchronous snapshot of the current app settings. Always reflects the latest persisted values. */
+  getSettings(): AppSettings;
+}
+
 export interface ZephyrAPI {
   ui: ZephyrUiApi;
   ipc: ZephyrIpcApi;
@@ -229,6 +241,8 @@ export interface ZephyrAPI {
   hooks: ZephyrHooksApi;
   /** Read-only access to the user's game library. */
   library: ZephyrLibraryApi;
+  /** Read-only access to the app's persisted settings (API keys, etc.). */
+  app: ZephyrAppApi;
 }
 
 export interface ZephyrPlugin {
