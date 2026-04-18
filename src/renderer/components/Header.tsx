@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Gamepad2, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowDownToLine, Gamepad2, Library, Settings as SettingsIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import { usePluginComponents } from '@/contexts/PluginContext';
 import { cn } from '@/lib/cn';
@@ -19,6 +19,8 @@ export function Header({
   const { routes } = usePluginComponents();
   const pluginPage = useUiStore((s) => s.pluginPage);
   const setPluginPage = useUiStore((s) => s.setPluginPage);
+  const activePage = useUiStore((s) => s.activePage);
+  const setActivePage = useUiStore((s) => s.setActivePage);
 
   return (
     <header
@@ -56,6 +58,19 @@ export function Header({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setActivePage(activePage === 'library' ? 'releases' : 'library')}
+          className={cn(
+            'no-drag rounded-lg p-2 transition',
+            activePage === 'library'
+              ? 'bg-brand-600 text-white'
+              : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100',
+          )}
+          title="Library"
+        >
+          <Library className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={onOpenDownloads}

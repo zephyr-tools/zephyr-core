@@ -3,6 +3,8 @@ import type {
   Artwork,
   BridgeApi,
   DownloadJob,
+  LibraryEntry,
+  LibraryReleaseInfo,
   LoadedPlugin,
   PluginRendererPath,
   PluginUi,
@@ -31,8 +33,8 @@ const api: BridgeApi = {
 
   searchTorrents: (name: string, title: string) =>
     ipcRenderer.invoke('torrent:search', name, title),
-  addTorrent: (magnetUri: string, expectedSize?: number) =>
-    ipcRenderer.invoke('torrent:add', magnetUri, expectedSize),
+  addTorrent: (magnetUri: string, expectedSize?: number, releaseInfo?: LibraryReleaseInfo) =>
+    ipcRenderer.invoke('torrent:add', magnetUri, expectedSize, releaseInfo),
   listDownloads: (): Promise<DownloadJob[]> => ipcRenderer.invoke('torrent:list'),
   pauseDownload: (infoHash: string): Promise<void> => ipcRenderer.invoke('torrent:pause', infoHash),
   resumeDownload: (infoHash: string): Promise<void> =>
@@ -86,6 +88,31 @@ const api: BridgeApi = {
   setPluginSetting: (pluginId: string, key: string, value: unknown): Promise<void> =>
     ipcRenderer.invoke('plugins:set-setting', pluginId, key, value),
   restartApp: (): Promise<void> => ipcRenderer.invoke('app:restart'),
+
+  // Library
+  getLibraryEntry: (id: string): Promise<LibraryEntry | null> =>
+    ipcRenderer.invoke('library:get', id),
+  addLibraryEntryManual: (
+    id: string,
+    info: LibraryReleaseInfo,
+  ): Promise<{ located: boolean; alreadyInLibrary: boolean }> =>
+    ipcRenderer.invoke('library:add-manual', id, info),
+  listLibrary: (page: number, perPage: number) =>
+    ipcRenderer.invoke('library:list', page, perPage),
+  updateLibraryEntry: (id: string, patch: Partial<LibraryEntry>) =>
+    ipcRenderer.invoke('library:update', id, patch),
+  removeLibraryEntry: (id: string): Promise<void> => ipcRenderer.invoke('library:remove', id),
+  pickExecutable: (id: string): Promise<string | null> =>
+    ipcRenderer.invoke('library:pick-executable', id),
+  launchGame: (id: string): Promise<void> => ipcRenderer.invoke('library:launch', id),
+  verifyLibrary: (): Promise<void> => ipcRenderer.invoke('library:verify'),
+
 };
 
 contextBridge.exposeInMainWorld('api', api);
+
+ipcRenderer.on('console:forward', (_event, level: string, msg: string) => {
+  if (level === 'error') console.error('[main]', msg);
+  else if (level === 'warn') console.warn('[main]', msg);
+  else console.log('[main]', msg);
+});

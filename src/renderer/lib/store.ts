@@ -10,11 +10,14 @@ interface UiState {
   /** Most recent release opened this session; sticky so plugin routes keep context. */
   lastViewedRelease: Release | null;
   pluginPage: string | null;
+  /** Top-level page: releases grid or the library. */
+  activePage: 'releases' | 'library';
   setSearch: (s: string) => void;
   setCategory: (c: string) => void;
   setPage: (p: number) => void;
   setSelectedRelease: (r: Release | null) => void;
   setPluginPage: (id: string | null) => void;
+  setActivePage: (p: 'releases' | 'library') => void;
   reset: () => void;
 }
 
@@ -25,6 +28,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedRelease: null,
   lastViewedRelease: null,
   pluginPage: null,
+  activePage: 'releases',
   setSearch: (search) => set({ search, page: 1 }),
   setCategory: (category) => set({ category, page: 1 }),
   setPage: (page) => set({ page }),
@@ -35,5 +39,6 @@ export const useUiStore = create<UiState>((set) => ({
         : { selectedRelease },
     ),
   setPluginPage: (pluginPage) => set({ pluginPage }),
+  setActivePage: (activePage) => set({ activePage, selectedRelease: null, pluginPage: null }),
   reset: () => set({ search: '', category: 'GAMES', page: 1 }),
 }));

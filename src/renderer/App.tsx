@@ -4,6 +4,7 @@ import { type JSX, useState } from 'react';
 import { DetailPage } from './components/DetailPage';
 import { DownloadsDrawer } from './components/DownloadsDrawer';
 import { Header } from './components/Header';
+import { LibraryPage } from './components/LibraryPage';
 import { PluginPageView } from './components/PluginPageView';
 import { ReleaseGrid } from './components/ReleaseGrid';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -21,6 +22,7 @@ export default function App(): JSX.Element {
   const selectedRelease = useUiStore((s) => s.selectedRelease);
   const setSelectedRelease = useUiStore((s) => s.setSelectedRelease);
   const pluginPage = useUiStore((s) => s.pluginPage);
+  const activePage = useUiStore((s) => s.activePage);
 
   const debouncedSearch = useDebouncedValue(search, 350);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -38,6 +40,26 @@ export default function App(): JSX.Element {
     return (
       <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
         <PluginPageView />
+        <UpdateNotification />
+      </div>
+    );
+  }
+
+  if (activePage === 'library') {
+    return (
+      <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
+        <Header
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenDownloads={() => setDownloadsOpen((o) => !o)}
+          activeDownloads={activeDownloads}
+        />
+        <LibraryPage />
+        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <DownloadsDrawer
+          open={downloadsOpen}
+          onClose={() => setDownloadsOpen(false)}
+          jobs={downloads}
+        />
         <UpdateNotification />
       </div>
     );

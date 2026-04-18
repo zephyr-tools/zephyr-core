@@ -227,11 +227,12 @@ zephyr.settings.onChange('apiKey', (newValue) => {
 | Method | Description |
 |---|---|
 | `onAppReady(handler)` | Called once after all plugins have loaded |
-| `onDownloadComplete(handler)` | Called when a download transitions to `seeding` (complete) state |
+| `onDownloadComplete(handler)` | Called when a download transitions to `seeding` (complete) state, after the virus scan resolves |
+| `onLibraryEntryComplete(handler)` | Called after a download completes and executable auto-discovery has run — provides the full `LibraryEntry` |
 
 `onDownloadComplete` fires **after** the post-download virus scan has resolved,
 so `job.scanStatus` is the final result (`clean` | `threat` | `error`) and
-`job.scanInfo` carries any details. See `zephyr-plugin.d.ts` for all fields:
+`job.scanInfo` carries any details:
 
 ```js
 zephyr.hooks.onDownloadComplete((job) => {
@@ -240,6 +241,63 @@ zephyr.hooks.onDownloadComplete((job) => {
   console.log(`Download complete: ${job.name} at ${job.savePath}`);
 });
 ```
+
+`onLibraryEntryComplete` fires after the same completion event but gives you the richer `LibraryEntry` — including the resolved `executablePath` and `releaseTitle`. **Only fires for downloads started from a release page** (ones that carry release metadata). Use this hook when you need to know where a game is installed:
+
+```js
+zephyr.hooks.onLibraryEntryComplete((entry) => {
+  // entry.releaseTitle, entry.releaseName, entry.team, entry.executablePath, ...
+  if (entry.installStatus === 'verified') {
+    console.log(`${entry.releaseTitle} is ready at ${entry.executablePath}`);
+  } else {
+    console.log(`${entry.releaseTitle} downloaded but executable not found`);
+  }
+});
+```
+
+### `zephyr.library`
+
+Read-only access to the user's game library. Entries are created when a download is queued from a release page and updated when the download completes.
+
+| Method | Description |
+|---|---|
+| `get(id)` | Get a single `LibraryEntry` by its infoHash id, or `undefined` if not in the library |
+| `list(page?, perPage?)` | List all entries, newest first — defaults to page 1, 100 per page |
+
+```js
+// Look up the entry for a just-completed download:
+zephyr.hooks.onDownloadComplete((job) => {
+  const entry = zephyr.library.get(job.infoHash);
+  if (entry?.executablePath) {
+    console.log(`Installed at: ${entry.executablePath}`);
+  }
+});
+
+// Read the full library on startup:
+zephyr.hooks.onAppReady(() => {
+  const { entries, total } = zephyr.library.list();
+  console.log(`Library has ${total} game(s)`);
+  for (const entry of entries) {
+    console.log(entry.releaseTitle, entry.installStatus);
+  }
+});
+```
+
+A `LibraryEntry` has these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | infoHash — matches `DownloadJob.infoHash` |
+| `releaseTitle` | `string` | Friendly game title (e.g. `"Elden Ring"`) |
+| `releaseName` | `string` | Full scene release name (e.g. `"Elden.Ring-CODEX"`) |
+| `team` | `string \| null` | Scene group |
+| `category` | `string` | Release category (e.g. `"GAMES"`) |
+| `savePath` | `string` | Directory where files were downloaded |
+| `totalSize` | `number` | Download size in bytes |
+| `addedAt` | `number` | Epoch ms when the download was queued |
+| `completedAt` | `number?` | Epoch ms when the download finished |
+| `installStatus` | `InstallStatus` | `'downloading'` → `'verified'` or `'unlocated'` (or `'missing'` if the path is later deleted) |
+| `executablePath` | `string?` | Absolute path to the game executable, if auto-discovered or user-located |
 
 ---
 

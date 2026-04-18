@@ -193,6 +193,8 @@
   gap: 8px;
 }
 .zephyr-stack--md {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 .zephyr-row {

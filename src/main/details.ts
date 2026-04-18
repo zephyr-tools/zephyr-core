@@ -262,17 +262,19 @@ export class GameDetailsService {
     const apiKey = this.getApiKey();
     if (!apiKey) return Promise.resolve(null);
 
-    const promise = this.fetchTrailer(title, apiKey)
-      .then((trailer) => {
+    const promise = (async () => {
+      try {
+        const trailer = await this.fetchTrailer(title, apiKey);
         this.trailerCache.set(key, trailer);
         return trailer;
-      })
-      .catch((err) => {
+      } catch (err) {
         console.warn(`[trailer] failed for "${title}": ${(err as Error).message}`);
         this.trailerCache.set(key, null);
         return null;
-      })
-      .finally(() => this.trailerInflight.delete(key));
+      } finally {
+        this.trailerInflight.delete(key);
+      }
+    })();
 
     this.trailerInflight.set(key, promise);
     return promise;
@@ -332,17 +334,19 @@ export class GameDetailsService {
       return Promise.resolve(none);
     }
 
-    const promise = fetchGroupPrerequisites(group, releaseName, apiKey)
-      .then((result) => {
+    const promise = (async () => {
+      try {
+        const result = await fetchGroupPrerequisites(group, releaseName, apiKey);
         this.prereqCache.set(key, result);
         return result;
-      })
-      .catch((err) => {
+      } catch (err) {
         console.warn(`[prereqs] failed for "${group}": ${(err as Error).message}`);
         this.prereqCache.set(key, none);
         return none;
-      })
-      .finally(() => this.prereqInflight.delete(key));
+      } finally {
+        this.prereqInflight.delete(key);
+      }
+    })();
 
     this.prereqInflight.set(key, promise);
     return promise;

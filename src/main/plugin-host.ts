@@ -2,7 +2,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
+  AppSettings,
   DownloadJob,
+  LibraryEntry,
+  LibraryListResult,
   LoadedPlugin,
   PluginSettingOption,
   PluginSettingType,
@@ -25,6 +28,19 @@ interface PluginSettingRegisterSpec {
   hint?: string;
 }
 
+/** Minimal library accessor passed into the plugin API. */
+interface LibraryAccessor {
+  list(page?: number, perPage?: number): LibraryListResult;
+  getEntry(id: string): LibraryEntry | undefined;
+  add(entry: LibraryEntry): Promise<void>;
+  update(id: string, patch: Partial<LibraryEntry>): Promise<void>;
+}
+
+/** Synchronous snapshot of the app's persisted settings. */
+interface AppSettingsAccessor {
+  snapshot(): AppSettings;
+}
+
 interface ZephyrAPI {
   ui: {
     addDetailButton(spec: { label: string; action: string; icon?: string }): void;
@@ -42,6 +58,36 @@ interface ZephyrAPI {
   hooks: {
     onDownloadComplete(handler: (job: DownloadJob) => void): void;
     onAppReady(handler: () => void): void;
+    /**
+     * Called after a download completes and auto-discovery has resolved the
+     * executable path. `entry.installStatus` is `'verified'` when an executable
+     * was found, `'unlocated'` otherwise. Only fires for downloads that were
+     * started with release metadata attached.
+     */
+    onLibraryEntryComplete(handler: (entry: LibraryEntry) => void): void;
+    /**
+     * Called when the user uninstalls this plugin, before its files are deleted.
+     * Use this to tear down anything the plugin installed outside its own dir —
+     * scheduled tasks, AppX packages, registry entries, cached data. Awaited with
+     * a 60s budget; exceptions are logged but don't block removal.
+     */
+    onUninstall(handler: () => void | Promise<void>): void;
+  };
+  /** Access to the user's game library. */
+  library: {
+    /** Retrieve a single entry by its infoHash id, or `undefined` if not in the library. */
+    get(id: string): LibraryEntry | undefined;
+    /** List all library entries, newest first. Paginated — defaults to page 1, 100 per page. */
+    list(page?: number, perPage?: number): LibraryListResult;
+    /** Add a new entry. No-op if an entry with that id already exists. */
+    add(entry: LibraryEntry): Promise<void>;
+    /** Patch an existing entry. No-op if the id is not in the library. */
+    update(id: string, patch: Partial<LibraryEntry>): Promise<void>;
+  };
+  /** Read-only access to the app's persisted settings (API keys, etc.). */
+  app: {
+    /** Synchronous snapshot of the current app settings. Always reflects the latest persisted values. */
+    getSettings(): AppSettings;
   };
 }
 
@@ -67,9 +113,13 @@ export class PluginHost {
   >();
   private unregisteredSetWarnings = new Set<string>(); // `${pluginId}:${key}`, warned-once
   private downloadCompleteHandlers: Array<(job: DownloadJob) => void> = [];
+  private libraryEntryCompleteHandlers: Array<(entry: LibraryEntry) => void> = [];
   private appReadyHandlers: Array<() => void> = [];
+  private uninstallHandlers = new Map<string, Array<() => void | Promise<void>>>();
   private loadedPlugins: LoadedPlugin[] = [];
   private rendererUrls = new Map<string, string>(); // pluginId -> file:// URL
+  private libraryAccessor: LibraryAccessor | null = null;
+  private appSettingsAccessor: AppSettingsAccessor | null = null;
 
   constructor() {
     this.pluginsDir = path.join(app.getPath('userData'), 'plugins');
@@ -285,6 +335,24 @@ export class PluginHost {
     } catch {
       throw new Error(`Plugin "${pluginId}" is not installed`);
     }
+
+    const handlers = this.uninstallHandlers.get(pluginId) ?? [];
+    for (const h of handlers) {
+      try {
+        await Promise.race([
+          Promise.resolve(h()),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('onUninstall handler timed out after 60s')), 60_000),
+          ),
+        ]);
+      } catch (err) {
+        console.error(
+          `[Plugin:${pluginId}] onUninstall handler threw:`,
+          (err as Error).message,
+        );
+      }
+    }
+
     await fs.rm(pluginDir, { recursive: true, force: true });
 
     this.loadedPlugins = this.loadedPlugins.filter((p) => p.id !== pluginId);
@@ -293,6 +361,7 @@ export class PluginHost {
     this.rendererUrls.delete(pluginId);
     this.settingsCache.delete(pluginId);
     this.settingChangeHandlers.delete(pluginId);
+    this.uninstallHandlers.delete(pluginId);
   }
 
   async setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void> {
@@ -332,12 +401,30 @@ export class PluginHost {
     return Array.from(this.rendererUrls.entries()).map(([pluginId, url]) => ({ pluginId, url }));
   }
 
+  setLibraryService(accessor: LibraryAccessor): void {
+    this.libraryAccessor = accessor;
+  }
+
+  setAppSettingsAccessor(accessor: AppSettingsAccessor): void {
+    this.appSettingsAccessor = accessor;
+  }
+
   notifyDownloadComplete(job: DownloadJob): void {
     for (const handler of this.downloadCompleteHandlers) {
       try {
         handler(job);
       } catch (err) {
         console.error('[PluginHost] onDownloadComplete handler threw:', (err as Error).message);
+      }
+    }
+  }
+
+  notifyLibraryEntryComplete(entry: LibraryEntry): void {
+    for (const handler of this.libraryEntryCompleteHandlers) {
+      try {
+        handler(entry);
+      } catch (err) {
+        console.error('[PluginHost] onLibraryEntryComplete handler threw:', (err as Error).message);
       }
     }
   }
@@ -444,6 +531,48 @@ export class PluginHost {
         },
         onAppReady(handler) {
           host.appReadyHandlers.push(handler);
+        },
+        onLibraryEntryComplete(handler) {
+          host.libraryEntryCompleteHandlers.push(handler);
+        },
+        onUninstall(handler) {
+          const existing = host.uninstallHandlers.get(pluginId) ?? [];
+          existing.push(handler);
+          host.uninstallHandlers.set(pluginId, existing);
+        },
+      },
+      library: {
+        get(id) {
+          return host.libraryAccessor?.getEntry(id);
+        },
+        list(page, perPage) {
+          return (
+            host.libraryAccessor?.list(page, perPage) ?? {
+              entries: [],
+              total: 0,
+              page: page ?? 1,
+              perPage: perPage ?? 100,
+            }
+          );
+        },
+        add(entry) {
+          return host.libraryAccessor?.add(entry) ?? Promise.resolve();
+        },
+        update(id, patch) {
+          return host.libraryAccessor?.update(id, patch) ?? Promise.resolve();
+        },
+      },
+      app: {
+        getSettings() {
+          return (
+            host.appSettingsAccessor?.snapshot() ?? {
+              geminiApiKey: null,
+              youtubeApiKey: null,
+              realDebridApiKey: null,
+              virusTotalApiKey: null,
+              autoStartEnabled: false,
+            }
+          );
         },
       },
     };

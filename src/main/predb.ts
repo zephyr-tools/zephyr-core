@@ -18,6 +18,11 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     return await net.fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`predb.net request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

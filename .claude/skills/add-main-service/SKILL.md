@@ -32,15 +32,20 @@ export class MyService {
     const existing = this.inflight.get(key);
     if (existing) return existing;
 
-    const promise = this._fetch(input)
-      .then((result) => { this.cache.set(key, result); return result; })
-      .catch((err) => {
+    const promise = (async () => {
+      try {
+        const result = await this._fetch(input);
+        this.cache.set(key, result);
+        return result;
+      } catch (err) {
         console.error('[MyService]', (err as Error).message);
         const fallback = { /* ... origin: 'none' */ };
         this.cache.set(key, fallback);
         return fallback;
-      })
-      .finally(() => this.inflight.delete(key));
+      } finally {
+        this.inflight.delete(key);
+      }
+    })();
 
     this.inflight.set(key, promise);
     return promise;
