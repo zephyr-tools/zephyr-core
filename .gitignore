@@ -7,3 +7,4 @@ examples/dist
 *.log
 .env
 .env.local
+.claude/settings.local.json
