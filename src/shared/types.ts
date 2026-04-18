@@ -178,6 +178,55 @@ export interface UpdateInfo {
   releaseNotes?: string;
 }
 
+// ---- Plugin types ----
+
+export interface PluginButtonSpec {
+  label: string;
+  /**
+   * Bare IPC channel name as registered by the plugin via `zephyr.ipc.handle`.
+   * The `plugin:` prefix is applied transparently when the renderer invokes.
+   */
+  action: string;
+  icon?: string;
+  /** Stamped by `PluginHost`; used to prune buttons on plugin removal. */
+  pluginId: string;
+}
+
+export type PluginSettingType = 'text' | 'password' | 'toggle' | 'number' | 'select';
+
+export interface PluginSettingOption {
+  label: string;
+  value: string | number | boolean;
+}
+
+export interface PluginSettingSpec {
+  key: string;
+  label: string;
+  type: PluginSettingType;
+  pluginId: string;
+  /** Current persisted value, or null when unset. */
+  value: unknown;
+  /** Options for `type: 'select'`. */
+  options?: PluginSettingOption[];
+  /** Numeric bounds + step, for `type: 'number'`. */
+  min?: number;
+  max?: number;
+  step?: number;
+  /** Optional helper text rendered under the field. */
+  hint?: string;
+}
+
+export interface PluginUi {
+  detailButtons: PluginButtonSpec[];
+  settings: PluginSettingSpec[];
+}
+
+export interface LoadedPlugin {
+  id: string;
+  name: string;
+  version: string;
+}
+
 /** API exposed on `window.api` from the preload bridge. */
 export interface BridgeApi {
   listReleases(query: ReleaseListQuery): Promise<ReleaseListResult>;
@@ -208,6 +257,33 @@ export interface BridgeApi {
   onUpdateAvailable(callback: (info: UpdateInfo) => void): () => void;
   onUpdateDownloaded(callback: () => void): () => void;
   installUpdate(): void;
+
+  // Plugin system
+  getPluginUi(): Promise<PluginUi>;
+  getPluginRendererPaths(): Promise<PluginRendererPath[]>;
+  /**
+   * Invoke a plugin-registered IPC handler. Pass the bare channel name
+   * (`pluginId:action`) — the `plugin:` prefix is applied in preload so
+   * this method can never reach a non-plugin channel.
+   */
+  invokePlugin(channel: string, payload: unknown): Promise<unknown>;
+  installPlugin(url: string): Promise<string>;
+  /** Install a plugin from a local .zip file path. */
+  installPluginFromZip(zipPath: string): Promise<string>;
+  /** Show a native file dialog for picking a plugin .zip. Returns null if the user cancels. */
+  pickPluginZip(): Promise<string | null>;
+  /** Delete a plugin from disk. Running code is unloaded on the next restart. */
+  removePlugin(pluginId: string): Promise<void>;
+  listPlugins(): Promise<LoadedPlugin[]>;
+  setPluginSetting(pluginId: string, key: string, value: unknown): Promise<void>;
+  /** Relaunch the app so install/remove changes take effect across both processes. */
+  restartApp(): Promise<void>;
+}
+
+export interface PluginRendererPath {
+  pluginId: string;
+  /** file:// URL to the renderer.js for this plugin. */
+  url: string;
 }
 
 declare global {

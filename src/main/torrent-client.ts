@@ -176,7 +176,7 @@ export class TorrentClient {
     if (!this.wt) throw new Error('TorrentClient not initialized');
 
     const hashMatch = /urn:btih:([a-fA-F0-9]{40})/i.exec(magnetUri);
-    if (!hashMatch?.[1]) throw new Error('Invalid magnet URI — no btih hash found');
+    if (!hashMatch?.[1]) throw new Error('Invalid magnet URI - no btih hash found');
     const infoHash = hashMatch[1].toLowerCase();
 
     if (this.jobs.has(infoHash)) return this.jobs.get(infoHash)!;

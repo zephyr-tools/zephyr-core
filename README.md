@@ -29,6 +29,7 @@ Zephyr is developed as a personal open-source project. It is distributed free of
 - **BitTorrent client** — Built-in download support via WebTorrent, with optional Real-Debrid integration
 - **Safety scanning** — Automatic Windows Defender scans on completed downloads, plus optional VirusTotal hash verification
 - **Download manager** — Pause, resume, and remove downloads with a slide-out drawer showing live progress
+- **Plugin system** — Extend Zephyr with third-party plugins. Install from an HTTPS URL pointing to a `.zip` archive, from a local `.zip` via **Settings → Plugins**, or by extracting the folder into `userData/plugins/` manually. See [PLUGINS.md](PLUGINS.md) for the developer guide and troubleshooting.
 
 ## Prerequisites
 
@@ -137,6 +138,8 @@ src/
 | `npm run typecheck` | Strict `tsc --noEmit` on both Node and Web configs |
 | `npm run lint` | BiomeJS linting |
 | `npm run format` | BiomeJS auto-format |
+| `npm run generate:plugin-types` | Sync plugin-facing types (`Release`, `DownloadJob`, …) into `examples/plugins/zephyr-plugin.d.ts` from `src/shared/types.ts`. Also runs in CI before typecheck. |
+| `npm run package:plugin -- <dir>` | Package an example plugin directory as a distributable `.zip` in `examples/dist/`. Runs `npm run build` inside the plugin first if it has one. |
 | `npm run package` | Build + package (directory output) |
 | `npm run make` | Build + create distributable installer |
 

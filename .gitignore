@@ -2,7 +2,9 @@ node_modules
 out
 dist
 release
+examples/dist
 .DS_Store
 *.log
 .env
 .env.local
+.claude/settings.local.json

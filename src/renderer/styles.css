@@ -10,6 +10,197 @@
   --color-brand-700: #6d28d9;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Zephyr Plugin UI Kit                                                        */
+/*                                                                             */
+/* A stable, versioned contract for plugin-rendered UI. These variables and   */
+/* classes are NOT used by core — core styles with Tailwind utilities         */
+/* directly. The kit exists because Tailwind class names are scanned at       */
+/* Zephyr's build time, so plugin bundles can't use them.                     */
+/*                                                                             */
+/* Values here reference Tailwind v4 theme tokens (`--color-*` CSS vars       */
+/* auto-published by Tailwind) rather than hex literals — so retheming core   */
+/* (e.g. swapping zinc → slate) flows through to plugins with no code         */
+/* changes here. The `--zephyr-*` NAMES are the public contract; the values   */
+/* they resolve to are implementation.                                         */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces */
+  --zephyr-bg-app: var(--color-zinc-950);
+  --zephyr-bg-surface: var(--color-zinc-900);
+  --zephyr-bg-elevated: var(--color-zinc-800);
+  --zephyr-bg-hover: var(--color-zinc-700);
+
+  /* Borders */
+  --zephyr-border: var(--color-zinc-800);
+  --zephyr-border-strong: var(--color-zinc-700);
+
+  /* Text */
+  --zephyr-text-primary: var(--color-zinc-50);
+  --zephyr-text-secondary: var(--color-zinc-200);
+  --zephyr-text-muted: var(--color-zinc-400);
+  --zephyr-text-subtle: var(--color-zinc-500);
+
+  /* Accent (brand) */
+  --zephyr-accent: var(--color-brand-500);
+  --zephyr-accent-strong: var(--color-brand-600);
+  --zephyr-accent-hover: var(--color-brand-700);
+  --zephyr-on-accent: #ffffff;
+
+  /* Semantic */
+  --zephyr-danger: var(--color-red-600);
+  --zephyr-success: var(--color-green-600);
+  --zephyr-warning: var(--color-amber-600);
+
+  /* Radii + typography */
+  --zephyr-radius: 0.75rem;
+  --zephyr-radius-sm: 0.5rem;
+  --zephyr-radius-lg: 1rem;
+  --zephyr-font-sans: var(--font-sans);
+  --zephyr-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.zephyr-card {
+  background: var(--zephyr-bg-surface);
+  border: 1px solid var(--zephyr-border);
+  border-radius: var(--zephyr-radius);
+  padding: 16px;
+  color: var(--zephyr-text-secondary);
+}
+.zephyr-card--muted {
+  background: color-mix(in oklab, var(--zephyr-bg-surface) 60%, transparent);
+}
+
+.zephyr-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--zephyr-bg-elevated);
+  color: var(--zephyr-text-secondary);
+  border: 0;
+  border-radius: var(--zephyr-radius-sm);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.zephyr-button:hover {
+  background: var(--zephyr-bg-hover);
+  color: var(--zephyr-text-primary);
+}
+.zephyr-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.zephyr-button--primary {
+  background: var(--zephyr-accent-strong);
+  color: var(--zephyr-on-accent);
+}
+.zephyr-button--primary:hover {
+  background: var(--zephyr-accent);
+}
+.zephyr-button--ghost {
+  background: transparent;
+}
+.zephyr-button--ghost:hover {
+  background: var(--zephyr-bg-elevated);
+}
+.zephyr-button--danger {
+  background: color-mix(in oklab, var(--zephyr-danger) 20%, transparent);
+  color: color-mix(in oklab, var(--zephyr-danger) 80%, white);
+}
+.zephyr-button--danger:hover {
+  background: color-mix(in oklab, var(--zephyr-danger) 35%, transparent);
+}
+
+.zephyr-input,
+.zephyr-select,
+.zephyr-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--zephyr-bg-surface);
+  color: var(--zephyr-text-primary);
+  border: 1px solid var(--zephyr-border);
+  border-radius: var(--zephyr-radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.zephyr-input::placeholder,
+.zephyr-textarea::placeholder {
+  color: var(--zephyr-text-subtle);
+}
+.zephyr-input:focus,
+.zephyr-select:focus,
+.zephyr-textarea:focus {
+  outline: 0;
+  border-color: var(--zephyr-accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--zephyr-accent) 40%, transparent);
+}
+
+.zephyr-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--zephyr-text-muted);
+}
+
+.zephyr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--zephyr-bg-elevated);
+  color: var(--zephyr-text-secondary);
+  font-size: 11px;
+}
+
+.zephyr-text-primary {
+  color: var(--zephyr-text-primary);
+}
+.zephyr-text-secondary {
+  color: var(--zephyr-text-secondary);
+}
+.zephyr-text-muted {
+  color: var(--zephyr-text-muted);
+}
+.zephyr-text-subtle {
+  color: var(--zephyr-text-subtle);
+}
+.zephyr-text-accent {
+  color: var(--zephyr-accent);
+}
+.zephyr-text-danger {
+  color: var(--zephyr-danger);
+}
+.zephyr-text-success {
+  color: var(--zephyr-success);
+}
+
+.zephyr-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.zephyr-stack--md {
+  gap: 16px;
+}
+.zephyr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 html,
 body,
 #root {

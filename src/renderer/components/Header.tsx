@@ -1,6 +1,8 @@
 import { ArrowDownToLine, Gamepad2, Settings as SettingsIcon } from 'lucide-react';
 import type { JSX } from 'react';
+import { usePluginComponents } from '@/contexts/PluginContext';
 import { cn } from '@/lib/cn';
+import { useUiStore } from '@/lib/store';
 import { SearchBar } from './SearchBar';
 
 interface HeaderProps {
@@ -14,6 +16,10 @@ export function Header({
   onOpenDownloads,
   activeDownloads,
 }: HeaderProps): JSX.Element {
+  const { routes } = usePluginComponents();
+  const pluginPage = useUiStore((s) => s.pluginPage);
+  const setPluginPage = useUiStore((s) => s.setPluginPage);
+
   return (
     <header
       className={cn(
@@ -28,6 +34,26 @@ export function Header({
       </div>
 
       <SearchBar />
+
+      {routes.length > 0 && (
+        <div className="flex items-center gap-1">
+          {routes.map((route) => (
+            <button
+              key={route.id}
+              type="button"
+              onClick={() => setPluginPage(pluginPage === route.id ? null : route.id)}
+              className={cn(
+                'no-drag rounded-lg px-3 py-1.5 text-xs font-medium transition',
+                pluginPage === route.id
+                  ? 'bg-brand-600 text-white'
+                  : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100',
+              )}
+            >
+              {route.navLabel}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-2">
         <button
