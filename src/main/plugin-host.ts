@@ -526,6 +526,7 @@ export class PluginHost {
               youtubeApiKey: null,
               realDebridApiKey: null,
               virusTotalApiKey: null,
+              autoStartEnabled: false,
             }
           );
         },
