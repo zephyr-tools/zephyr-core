@@ -175,6 +175,8 @@ export type InstallStatus = 'downloading' | 'verified' | 'missing' | 'unlocated'
 export interface LibraryEntry {
   /** Keyed by infoHash. */
   id: string;
+  /** Original release ID for release-scoped lookups. */
+  releaseId?: string;
   releaseName: string;
   releaseTitle: string;
   team: string | null;

@@ -543,17 +543,20 @@ export class PluginHost {
       },
       library: {
         get(id) {
-          return host.libraryAccessor?.getEntry(id);
+          const entry = host.libraryAccessor?.getEntry(id);
+          return entry ? structuredClone(entry) : undefined;
         },
         list(page, perPage) {
-          return (
-            host.libraryAccessor?.list(page, perPage) ?? {
-              entries: [],
-              total: 0,
-              page: page ?? 1,
-              perPage: perPage ?? 100,
-            }
-          );
+          const result = host.libraryAccessor?.list(page, perPage) ?? {
+            entries: [],
+            total: 0,
+            page: page ?? 1,
+            perPage: perPage ?? 100,
+          };
+          return {
+            ...result,
+            entries: result.entries.map(e => structuredClone(e)),
+          };
         },
         add(entry) {
           return host.libraryAccessor?.add(entry) ?? Promise.resolve();

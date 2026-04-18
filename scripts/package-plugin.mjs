@@ -53,8 +53,13 @@ const flags = new Map();
 for (let i = 0; i < raw.length; i++) {
   const a = raw[i];
   if (a.startsWith('--')) {
-    flags.set(a.slice(2), raw[i + 1] ?? true);
-    i++;
+    const next = raw[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      flags.set(a.slice(2), true);
+    } else {
+      flags.set(a.slice(2), next);
+      i++;
+    }
   } else {
     positional.push(a);
   }
@@ -115,19 +120,7 @@ if (!existsSync(join(pluginDir, 'index.js'))) {
   process.exit(1);
 }
 
-// ── Step 2: Service runtime deps ──────────────────────────────────────────────
-const serviceDir = join(pluginDir, 'service');
-if (existsSync(join(serviceDir, 'package.json'))) {
-  const serviceModules = join(serviceDir, 'node_modules');
-  if (!existsSync(serviceModules)) {
-    console.log('→ Installing service runtime deps (npm install --omit=dev)');
-    execSync('npm install --omit=dev', { cwd: serviceDir, stdio: 'inherit', shell: true });
-  } else {
-    console.log('→ service/node_modules present — skipping install');
-  }
-}
-
-// ── Step 3: Widget build ──────────────────────────────────────────────────────
+// ── Step 2: Widget build ──────────────────────────────────────────────────────
 const widgetDir = join(pluginDir, 'widget');
 if (existsSync(widgetDir) && !skipWidget) {
   const csprojFiles = [];
@@ -151,13 +144,14 @@ if (existsSync(widgetDir) && !skipWidget) {
       const pfxPath = join(widgetDir, 'AchievementWidget.pfx');
       const cerPath = join(widgetDir, 'AchievementWidget.cer');
       console.log('→ Ensuring signing certificate in current-user store');
+      const pfxPassword = process.env.WIDGET_PFX_PASSWORD ?? 'ZephyrWidget!';
       const certPs1 = [
         '$ErrorActionPreference = "Stop"',
         '$subject = "CN=ZephyrDev"',
         '$friendly = "Zephyr Achievement Widget"',
         `$pfx = '${pfxPath.replace(/'/g, "''")}'`,
         `$cer = '${cerPath.replace(/'/g, "''")}'`,
-        '$pfxPwd = ConvertTo-SecureString -String "ZephyrWidget!" -Force -AsPlainText',
+        `$pfxPwd = ConvertTo-SecureString -String "${pfxPassword}" -Force -AsPlainText`,
         '$cert = Get-ChildItem -Path "Cert:\\CurrentUser\\My" | Where-Object { $_.Subject -eq $subject -and $_.FriendlyName -eq $friendly } | Select-Object -First 1',
         'if (-not $cert) {',
         '  if (Test-Path $pfx) {',
@@ -266,7 +260,7 @@ if (existsSync(widgetDir) && !skipWidget) {
             );
           } else if (signtool && existsSync(pfxPath)) {
             execSync(
-              `"${signtool}" sign /fd sha256 /f "${pfxPath}" /p "ZephyrWidget!" "${msixOut}"`,
+              `"${signtool}" sign /fd sha256 /f "${pfxPath}" /p "${pfxPassword}" "${msixOut}"`,
               { stdio: 'inherit', shell: true },
             );
           }
@@ -294,13 +288,14 @@ if (existsSync(widgetDir) && !skipWidget) {
       const pfxPath = join(widgetDir, 'AchievementWidget.pfx');
       const cerPath = join(widgetDir, 'AchievementWidget.cer');
       console.log('→ Ensuring signing certificate in current-user store');
+      const pfxPassword = process.env.WIDGET_PFX_PASSWORD ?? 'ZephyrWidget!';
       const certPs1 = [
         '$ErrorActionPreference = "Stop"',
         '$subject = "CN=ZephyrDev"',
         '$friendly = "Zephyr Achievement Widget"',
         `$pfx = '${pfxPath.replace(/'/g, "''")}'`,
         `$cer = '${cerPath.replace(/'/g, "''")}'`,
-        '$pfxPwd = ConvertTo-SecureString -String "ZephyrWidget!" -Force -AsPlainText',
+        `$pfxPwd = ConvertTo-SecureString -String "${pfxPassword}" -Force -AsPlainText`,
         // Try to find existing cert in store
         '$cert = Get-ChildItem -Path "Cert:\\CurrentUser\\My" | Where-Object { $_.Subject -eq $subject -and $_.FriendlyName -eq $friendly } | Select-Object -First 1',
         'if (-not $cert) {',
@@ -604,10 +599,10 @@ function findRecursive(dir, exts) {
 /** Locate MSBuild from VS 2026 Build Tools (for C++/WinRT vcxproj builds). */
 function findMsBuildV180() {
   for (const base of [
-    'C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools',
-    'C:\\Program Files\\Microsoft Visual Studio\\18\\BuildTools',
-    'C:\\Program Files\\Microsoft Visual Studio\\18\\Community',
-    'C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\Community',
+    'C:\\Program Files (x86)\\Microsoft Visual Studio\\2026\\BuildTools',
+    'C:\\Program Files\\Microsoft Visual Studio\\2026\\BuildTools',
+    'C:\\Program Files\\Microsoft Visual Studio\\2026\\Community',
+    'C:\\Program Files (x86)\\Microsoft Visual Studio\\2026\\Community',
   ]) {
     const p = join(base, 'MSBuild', 'Current', 'Bin', 'MSBuild.exe');
     if (existsSync(p)) return p;
@@ -619,7 +614,17 @@ function findMsBuildV180() {
 function findMakeAppx() {
   const kitsRoot = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin';
   if (!existsSync(kitsRoot)) return null;
-  const vers = readdirSync(kitsRoot).filter((v) => /^\d+\.\d+\.\d+\.\d+$/.test(v)).sort().reverse();
+  const vers = readdirSync(kitsRoot)
+    .filter((v) => /^\d+\.\d+\.\d+\.\d+$/.test(v))
+    .sort((a, b) => {
+      const aParts = a.split('.').map(Number);
+      const bParts = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const diff = (bParts[i] ?? 0) - (aParts[i] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    });
   for (const v of vers) {
     const p = join(kitsRoot, v, 'x64', 'makeappx.exe');
     if (existsSync(p)) return p;
@@ -631,7 +636,17 @@ function findMakeAppx() {
 function findSignTool() {
   const kitsRoot = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin';
   if (!existsSync(kitsRoot)) return null;
-  const vers = readdirSync(kitsRoot).filter((v) => /^\d+\.\d+\.\d+\.\d+$/.test(v)).sort().reverse();
+  const vers = readdirSync(kitsRoot)
+    .filter((v) => /^\d+\.\d+\.\d+\.\d+$/.test(v))
+    .sort((a, b) => {
+      const aParts = a.split('.').map(Number);
+      const bParts = b.split('.').map(Number);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const diff = (bParts[i] ?? 0) - (aParts[i] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    });
   for (const v of vers) {
     const p = join(kitsRoot, v, 'x64', 'signtool.exe');
     if (existsSync(p)) return p;
